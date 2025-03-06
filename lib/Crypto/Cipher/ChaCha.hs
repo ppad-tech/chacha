@@ -260,7 +260,7 @@ chacha20_encrypt
 chacha20_encrypt key counter nonce = loop mempty counter where
   loop acc j bs = case BS.splitAt 64 bs of
     (chunk@(BI.PS _ _ l), etc)
-      | l == 0 && BS.length etc == 0 -> pure $
+      | l /= 0 && BS.length etc == 0 -> pure $
           BS.toStrict (BSB.toLazyByteString acc)
       | otherwise -> do
           stream <- chacha20_block key j nonce

@@ -14,7 +14,6 @@ import Data.Word (Word32)
 import Test.Tasty
 import qualified Test.Tasty.HUnit as H
 
-
 main :: IO ()
 main = defaultMain $ testGroup "ppad-chacha" [
     quarter
@@ -125,8 +124,4 @@ chacha20_encrypt :: TestTree
 chacha20_encrypt = H.testCase "chacha20 encrypt" $ do
   o <- ChaCha.chacha20_encrypt block_key 1 crypt_non crypt_plain
   H.assertEqual mempty crypt_cip o
-
-
-
-
 
