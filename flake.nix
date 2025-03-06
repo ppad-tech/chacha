@@ -2,6 +2,12 @@
   description = "A pure Haskell ChaCha stream cipher.";
 
   inputs = {
+    ppad-base16 = {
+      type = "git";
+      url  = "git://git.ppad.tech/base16.git";
+      ref  = "master";
+      inputs.ppad-nixpkgs.follows = "ppad-nixpkgs";
+    };
     ppad-nixpkgs = {
       type = "git";
       url  = "git://git.ppad.tech/nixpkgs.git";
@@ -11,7 +17,9 @@
     nixpkgs.follows = "ppad-nixpkgs/nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils, ppad-nixpkgs }:
+  outputs = { self, nixpkgs, flake-utils, ppad-nixpkgs
+            , ppad-base16
+            }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         lib = "ppad-chacha";
@@ -21,6 +29,7 @@
 
         hpkgs = pkgs.haskell.packages.ghc981.extend (new: old: {
           ${lib} = old.callCabal2nixWithOptions lib ./. "--enable-profiling" {};
+          ppad-base16 = ppad-base16.packages.${system}.default;
         });
 
         cc    = pkgs.stdenv.cc;
