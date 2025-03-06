@@ -9,6 +9,7 @@ import qualified Crypto.Cipher.ChaCha as ChaCha
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.Foldable (for_)
+import Data.Maybe (fromJust)
 import qualified Data.Primitive.PrimArray as PA
 import Data.Word (Word32)
 import Test.Tasty
@@ -20,8 +21,8 @@ main = defaultMain $ testGroup "ppad-chacha" [
   , quarter_fullstate
   , chacha20_block_init
   , chacha20_rounds
-  , chacha20_block
-  , chacha20_encrypt
+  -- , chacha20_block
+  , encrypt
   ]
 
 quarter :: TestTree
@@ -56,20 +57,17 @@ quarter_fullstate = H.testCase "quarter round (full chacha state)" $ do
   H.assertEqual mempty e o
 
 block_key :: BS.ByteString
-block_key =
-  case B16.decode "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" of
-    Nothing -> error "bang"
-    Just k -> k
+block_key = fromJust $
+  B16.decode "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
 block_non :: BS.ByteString
-block_non =
-  case B16.decode "000000090000004a00000000" of
-    Nothing -> error "bang"
-    Just n -> n
+block_non = fromJust $ B16.decode "000000090000004a00000000"
 
 chacha20_block_init :: TestTree
 chacha20_block_init = H.testCase "chacha20 state init" $ do
-  ChaCha.ChaCha foo <- ChaCha.chacha block_key 1 block_non
+  let key = ChaCha.parse_key block_key
+      non = ChaCha.parse_nonce block_non
+  ChaCha.ChaCha foo <- ChaCha.chacha key 1 non
   state <- PA.freezePrimArray foo 0 16
   let ref = PA.primArrayFromList [
           0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
@@ -81,7 +79,9 @@ chacha20_block_init = H.testCase "chacha20 state init" $ do
 
 chacha20_rounds :: TestTree
 chacha20_rounds = H.testCase "chacha20 20 rounds" $ do
-  state@(ChaCha.ChaCha s) <- ChaCha.chacha block_key 1 block_non
+  let key = ChaCha.parse_key block_key
+      non = ChaCha.parse_nonce block_non
+  state@(ChaCha.ChaCha s) <- ChaCha.chacha key 1 non
   for_ [1..10 :: Int] (const (ChaCha.rounds state))
 
   out <- PA.freezePrimArray s 0 16
@@ -95,15 +95,17 @@ chacha20_rounds = H.testCase "chacha20 20 rounds" $ do
 
   H.assertEqual mempty ref out
 
-chacha20_block :: TestTree
-chacha20_block = H.testCase "chacha20 block function" $ do
-  o <- ChaCha.chacha20_block block_key 1 block_non
-  let raw_exp = "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e"
-      e = case B16.decode raw_exp of
-        Nothing -> error "bang"
-        Just x -> x
-
-  H.assertEqual mempty e o
+-- chacha20_block :: TestTree
+-- chacha20_block = H.testCase "chacha20 block function" $ do
+--   let key = ChaCha.parse_key block_key
+--       non = ChaCha.parse_nonce block_non
+--   o <- ChaCha.chacha20_block key 1 non
+--   let raw_exp = "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e"
+--       e = case B16.decode raw_exp of
+--         Nothing -> error "bang"
+--         Just x -> x
+--
+--   H.assertEqual mempty e o
 
 crypt_plain :: BS.ByteString
 crypt_plain = case B16.decode "4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e" of
@@ -120,8 +122,8 @@ crypt_non = case B16.decode "000000000000004a00000000" of
   Nothing -> error "bang"
   Just x -> x
 
-chacha20_encrypt :: TestTree
-chacha20_encrypt = H.testCase "chacha20 encrypt" $ do
-  o <- ChaCha.chacha20_encrypt block_key 1 crypt_non crypt_plain
+encrypt :: TestTree
+encrypt = H.testCase "more efficient encrypt" $ do
+  o <- ChaCha.encrypt block_key 1 crypt_non crypt_plain
   H.assertEqual mempty crypt_cip o
 

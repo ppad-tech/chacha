@@ -27,9 +27,6 @@ fi = fromIntegral
 
 -- parse strict ByteString in LE order to Word32 (verbatim from
 -- Data.Binary)
---
--- invariant:
---   the input bytestring is at least 32 bits in length
 unsafe_word32le :: BS.ByteString -> Word32
 unsafe_word32le s =
   (fi (s `BU.unsafeIndex` 3) `B.unsafeShiftL` 24) .|.
@@ -44,9 +41,6 @@ data WSPair = WSPair
 
 -- variant of Data.ByteString.splitAt that behaves like an incremental
 -- Word32 parser
---
--- invariant:
---   the input bytestring is at least 32 bits in length
 unsafe_parseWsPair :: BS.ByteString -> WSPair
 unsafe_parseWsPair (BI.BS x l) =
   WSPair (unsafe_word32le (BI.BS x 4)) (BI.BS (plusForeignPtr x 4) (l - 4))
@@ -167,10 +161,23 @@ parse_nonce bs =
 newtype ChaCha s = ChaCha (PA.MutablePrimArray s Word32)
   deriving Eq
 
+chacha
+  :: PrimMonad m
+  => Key
+  -> Word32
+  -> Nonce
+  -> m (ChaCha (PrimState m))
+chacha key counter nonce = do
+  state <- _chacha_alloc
+  _chacha_set state key counter nonce
+  pure state
+
 -- allocate a new chacha state
 _chacha_alloc :: PrimMonad m => m (ChaCha (PrimState m))
 _chacha_alloc = fmap ChaCha (PA.newPrimArray 16)
 {-# INLINE _chacha_alloc #-}
+
+-- XX can be optimised more (only change counter)
 
 -- set the values of a chacha state
 _chacha_set
@@ -199,6 +206,14 @@ _chacha_set (ChaCha arr) Key {..} counter Nonce {..}= do
   PA.writePrimArray arr 15 n2
 {-# INLINEABLE _chacha_set #-}
 
+_chacha_counter
+  :: PrimMonad m
+  => ChaCha (PrimState m)
+  -> Word32
+  -> m ()
+_chacha_counter (ChaCha arr) counter =
+  PA.writePrimArray arr 12 counter
+
 -- two full rounds (eight quarter rounds)
 rounds :: PrimMonad m => ChaCha (PrimState m) -> m ()
 rounds state = do
@@ -211,6 +226,21 @@ rounds state = do
   quarter state 02 07 08 13
   quarter state 03 04 09 14
 {-# INLINEABLE rounds #-}
+
+_block
+  :: PrimMonad m
+  => ChaCha (PrimState m)
+  -> Word32
+  -> m BS.ByteString
+_block state@(ChaCha s) counter = do
+  _chacha_counter state counter
+  i <- PA.freezePrimArray s 0 16
+  for_ [1..10 :: Int] (const (rounds state))
+  for_ [0..15 :: Int] $ \idx -> do
+    let iv = PA.indexPrimArray i idx
+    sv <- PA.readPrimArray s idx
+    PA.writePrimArray s idx (iv + sv)
+  serialize state
 
 serialize :: PrimMonad m => ChaCha (PrimState m) -> m BS.ByteString
 serialize (ChaCha m) = do
@@ -227,47 +257,7 @@ serialize (ChaCha m) = do
   where
     w64 a b = BSB.word64LE (fi a .|. (fi b .<<. 32))
 
-_chacha20_block
-  :: PrimMonad m
-  => ChaCha (PrimState m)
-  -> Key
-  -> Word32
-  -> Nonce
-  -> m BS.ByteString
-_chacha20_block state@(ChaCha s) key counter nonce = do
-  _chacha_set state key counter nonce
-  i <- PA.freezePrimArray s 0 16
-  for_ [1..10 :: Int] (const (rounds state))
-  for_ [0..15 :: Int] $ \idx -> do
-    let iv = PA.indexPrimArray i idx
-    sv <- PA.readPrimArray s idx
-    PA.writePrimArray s idx (iv + sv)
-  serialize state
-
 -- chacha20 encryption --------------------------------------------------------
-
-_encrypt
-  :: PrimMonad m
-  => Key
-  -> Word32
-  -> Nonce
-  -> BS.ByteString
-  -> m BS.ByteString
-_encrypt key counter nonce plaintext = do
-  state <- _chacha_alloc
-  _chacha_set state key counter nonce
-
-  let loop acc !j bs = case BS.splitAt 64 bs of
-        (chunk@(BI.PS _ _ l), etc)
-          | l == 0 && BS.length etc == 0 -> pure $
-              BS.toStrict (BSB.toLazyByteString acc)
-          | otherwise -> do
-              stream <- _chacha20_block state key j nonce
-              let cip = BS.packZipWith (.^.) chunk stream
-              loop (acc <> BSB.byteString cip) (j + 1) etc
-
-  loop mempty counter plaintext
-{-# INLINE _encrypt #-}
 
 encrypt
   :: PrimMonad m
@@ -283,4 +273,28 @@ encrypt raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
       let key = parse_key raw_key
           non = parse_nonce raw_nonce
       _encrypt key counter non plaintext
+
+_encrypt
+  :: PrimMonad m
+  => Key
+  -> Word32
+  -> Nonce
+  -> BS.ByteString
+  -> m BS.ByteString
+_encrypt key counter nonce plaintext = do
+  ChaCha initial <- chacha key counter nonce
+  state@(ChaCha s) <- _chacha_alloc
+
+  let loop acc !j bs = case BS.splitAt 64 bs of
+        (chunk@(BI.PS _ _ l), etc)
+          | l == 0 && BS.length etc == 0 -> pure $
+              BS.toStrict (BSB.toLazyByteString acc)
+          | otherwise -> do
+              PA.copyMutablePrimArray s 0 initial 0 16
+              stream <- _block state j
+              let cip = BS.packZipWith (.^.) chunk stream
+              loop (acc <> BSB.byteString cip) (j + 1) etc
+
+  loop mempty counter plaintext
+{-# INLINE _encrypt #-}
 
