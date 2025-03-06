@@ -6,7 +6,7 @@
 module Crypto.Cipher.ChaCha where
 
 import qualified Data.Bits as B
-import Data.Bits ((.|.))
+import Data.Bits ((.|.), (.<<.), (.^.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Internal as BI
@@ -116,7 +116,7 @@ rotateL# w i
       `or#` ((word32ToWord# w) `uncheckedShiftRL#` (32# -# i)))
 {-# INLINE rotateL# #-}
 
--- chacha block function ------------------------------------------------------
+-- chacha20 block function ----------------------------------------------------
 
 data Key = Key {
     k0 :: {-# UNPACK #-} !Word32
@@ -197,7 +197,7 @@ chacha key counter nonce = do
 
   pure (ChaCha arr)
 
-
+-- two full rounds (eight quarter rounds)
 rounds
   :: PrimMonad m
   => ChaCha (PrimState m)
@@ -212,17 +212,24 @@ rounds state = do
   quarter state 02 07 08 13
   quarter state 03 04 09 14
 
+-- XX avoid builders here; know the length of this
 serialize
   :: PrimMonad m
   => ChaCha (PrimState m)
   -> m BS.ByteString
 serialize (ChaCha m) = do
-  let loop acc j
-        | j == 16 = pure (BS.toStrict (BSB.toLazyByteString acc))
-        | otherwise = do
-            v <- PA.readPrimArray m j
-            loop (acc <> BSB.word32LE v) (j + 1)
-  loop mempty 0
+    w64_0 <- w64 <$> PA.readPrimArray m 00 <*> PA.readPrimArray m 01
+    w64_1 <- w64 <$> PA.readPrimArray m 02 <*> PA.readPrimArray m 03
+    w64_2 <- w64 <$> PA.readPrimArray m 04 <*> PA.readPrimArray m 05
+    w64_3 <- w64 <$> PA.readPrimArray m 06 <*> PA.readPrimArray m 07
+    w64_4 <- w64 <$> PA.readPrimArray m 08 <*> PA.readPrimArray m 09
+    w64_5 <- w64 <$> PA.readPrimArray m 10 <*> PA.readPrimArray m 11
+    w64_6 <- w64 <$> PA.readPrimArray m 12 <*> PA.readPrimArray m 13
+    w64_7 <- w64 <$> PA.readPrimArray m 14 <*> PA.readPrimArray m 15
+    pure . BS.toStrict . BSB.toLazyByteString . mconcat $
+      [w64_0, w64_1, w64_2, w64_3, w64_4, w64_5, w64_6, w64_7]
+  where
+    w64 a b = BSB.word64LE (fi a .|. (fi b .<<. 32))
 
 chacha20_block
   :: PrimMonad m
@@ -240,5 +247,23 @@ chacha20_block key counter nonce = do
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
+-- chacha20 encryption --------------------------------------------------------
 
+
+chacha20_encrypt
+  :: PrimMonad m
+  => BS.ByteString
+  -> Word32
+  -> BS.ByteString
+  -> BS.ByteString
+  -> m BS.ByteString
+chacha20_encrypt key counter nonce = loop mempty counter where
+  loop acc j bs = case BS.splitAt 64 bs of
+    (chunk@(BI.PS _ _ l), etc)
+      | l == 0 && BS.length etc == 0 -> pure $
+          BS.toStrict (BSB.toLazyByteString acc)
+      | otherwise -> do
+          stream <- chacha20_block key j nonce
+          let cip = BS.packZipWith (.^.) chunk stream
+          loop (acc <> BSB.byteString cip) (j + 1) etc
 
