@@ -116,7 +116,7 @@ rotateL# w i
       `or#` ((word32ToWord# w) `uncheckedShiftRL#` (32# -# i)))
 {-# INLINE rotateL# #-}
 
--- chacha20 block function ----------------------------------------------------
+-- key and nonce parsing ------------------------------------------------------
 
 data Key = Key {
     k0 :: {-# UNPACK #-} !Word32
@@ -152,6 +152,7 @@ data Nonce = Nonce {
   }
   deriving (Eq, Show)
 
+-- parse strict 96-bit bytestring (length unchecked) to nonce
 parse_nonce :: BS.ByteString -> Nonce
 parse_nonce bs =
   let !(WSPair n0 t0) = unsafe_parseWsPair bs
@@ -161,24 +162,29 @@ parse_nonce bs =
       then Nonce {..}
       else error "ppad-chacha (parse_nonce): bytes remaining"
 
+-- chacha20 block function ----------------------------------------------------
+
 newtype ChaCha s = ChaCha (PA.MutablePrimArray s Word32)
   deriving Eq
 
--- init chacha state
-chacha
+-- allocate a new chacha state
+_chacha_alloc :: PrimMonad m => m (ChaCha (PrimState m))
+_chacha_alloc = fmap ChaCha (PA.newPrimArray 16)
+{-# INLINE _chacha_alloc #-}
+
+-- set the values of a chacha state
+_chacha_set
   :: PrimMonad m
-  => BS.ByteString
+  => ChaCha (PrimState m)
+  -> Key
   -> Word32
-  -> BS.ByteString
-  -> m (ChaCha (PrimState m))
-chacha key counter nonce = do
-  arr <- PA.newPrimArray 16
+  -> Nonce
+  -> m ()
+_chacha_set (ChaCha arr) Key {..} counter Nonce {..}= do
   PA.writePrimArray arr 00 0x61707865
   PA.writePrimArray arr 01 0x3320646e
   PA.writePrimArray arr 02 0x79622d32
   PA.writePrimArray arr 03 0x6b206574
-
-  let Key {..} = parse_key key
   PA.writePrimArray arr 04 k0
   PA.writePrimArray arr 05 k1
   PA.writePrimArray arr 06 k2
@@ -187,21 +193,14 @@ chacha key counter nonce = do
   PA.writePrimArray arr 09 k5
   PA.writePrimArray arr 10 k6
   PA.writePrimArray arr 11 k7
-
   PA.writePrimArray arr 12 counter
-
-  let Nonce {..} = parse_nonce nonce
   PA.writePrimArray arr 13 n0
   PA.writePrimArray arr 14 n1
   PA.writePrimArray arr 15 n2
-
-  pure (ChaCha arr)
+{-# INLINEABLE _chacha_set #-}
 
 -- two full rounds (eight quarter rounds)
-rounds
-  :: PrimMonad m
-  => ChaCha (PrimState m)
-  -> m ()
+rounds :: PrimMonad m => ChaCha (PrimState m) -> m ()
 rounds state = do
   quarter state 00 04 08 12
   quarter state 01 05 09 13
@@ -211,12 +210,9 @@ rounds state = do
   quarter state 01 06 11 12
   quarter state 02 07 08 13
   quarter state 03 04 09 14
+{-# INLINEABLE rounds #-}
 
--- XX avoid builders here; know the length of this
-serialize
-  :: PrimMonad m
-  => ChaCha (PrimState m)
-  -> m BS.ByteString
+serialize :: PrimMonad m => ChaCha (PrimState m) -> m BS.ByteString
 serialize (ChaCha m) = do
     w64_0 <- w64 <$> PA.readPrimArray m 00 <*> PA.readPrimArray m 01
     w64_1 <- w64 <$> PA.readPrimArray m 02 <*> PA.readPrimArray m 03
@@ -231,39 +227,60 @@ serialize (ChaCha m) = do
   where
     w64 a b = BSB.word64LE (fi a .|. (fi b .<<. 32))
 
-chacha20_block
+_chacha20_block
   :: PrimMonad m
-  => BS.ByteString
+  => ChaCha (PrimState m)
+  -> Key
   -> Word32
-  -> BS.ByteString
+  -> Nonce
   -> m BS.ByteString
-chacha20_block key counter nonce = do
-  state@(ChaCha s) <- chacha key counter nonce
+_chacha20_block state@(ChaCha s) key counter nonce = do
+  _chacha_set state key counter nonce
   i <- PA.freezePrimArray s 0 16
   for_ [1..10 :: Int] (const (rounds state))
   for_ [0..15 :: Int] $ \idx -> do
-    let !iv = PA.indexPrimArray i idx
+    let iv = PA.indexPrimArray i idx
     sv <- PA.readPrimArray s idx
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
 -- chacha20 encryption --------------------------------------------------------
 
+_encrypt
+  :: PrimMonad m
+  => Key
+  -> Word32
+  -> Nonce
+  -> BS.ByteString
+  -> m BS.ByteString
+_encrypt key counter nonce plaintext = do
+  state <- _chacha_alloc
+  _chacha_set state key counter nonce
 
-chacha20_encrypt
+  let loop acc !j bs = case BS.splitAt 64 bs of
+        (chunk@(BI.PS _ _ l), etc)
+          | l == 0 && BS.length etc == 0 -> pure $
+              BS.toStrict (BSB.toLazyByteString acc)
+          | otherwise -> do
+              stream <- _chacha20_block state key j nonce
+              let cip = BS.packZipWith (.^.) chunk stream
+              loop (acc <> BSB.byteString cip) (j + 1) etc
+
+  loop mempty counter plaintext
+{-# INLINE _encrypt #-}
+
+encrypt
   :: PrimMonad m
   => BS.ByteString
   -> Word32
   -> BS.ByteString
   -> BS.ByteString
   -> m BS.ByteString
-chacha20_encrypt key counter nonce = loop mempty counter where
-  loop acc j bs = case BS.splitAt 64 bs of
-    (chunk@(BI.PS _ _ l), etc)
-      | l /= 0 && BS.length etc == 0 -> pure $
-          BS.toStrict (BSB.toLazyByteString acc)
-      | otherwise -> do
-          stream <- chacha20_block key j nonce
-          let cip = BS.packZipWith (.^.) chunk stream
-          loop (acc <> BSB.byteString cip) (j + 1) etc
+encrypt raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
+  | kl /= 32  = error "ppad-chacha (encrypt): invalid key"
+  | nl /= 12  = error "ppad-chacha (encrypt): invalid nonce"
+  | otherwise = do
+      let key = parse_key raw_key
+          non = parse_nonce raw_nonce
+      _encrypt key counter non plaintext
 
