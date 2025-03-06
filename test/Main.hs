@@ -21,7 +21,6 @@ main = defaultMain $ testGroup "ppad-chacha" [
   , quarter_fullstate
   , chacha20_block_init
   , chacha20_rounds
-  -- , chacha20_block
   , encrypt
   ]
 
@@ -95,18 +94,6 @@ chacha20_rounds = H.testCase "chacha20 20 rounds" $ do
 
   H.assertEqual mempty ref out
 
--- chacha20_block :: TestTree
--- chacha20_block = H.testCase "chacha20 block function" $ do
---   let key = ChaCha.parse_key block_key
---       non = ChaCha.parse_nonce block_non
---   o <- ChaCha.chacha20_block key 1 non
---   let raw_exp = "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e"
---       e = case B16.decode raw_exp of
---         Nothing -> error "bang"
---         Just x -> x
---
---   H.assertEqual mempty e o
-
 crypt_plain :: BS.ByteString
 crypt_plain = case B16.decode "4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e" of
   Nothing -> error "bang"
@@ -123,7 +110,7 @@ crypt_non = case B16.decode "000000000000004a00000000" of
   Just x -> x
 
 encrypt :: TestTree
-encrypt = H.testCase "more efficient encrypt" $ do
+encrypt = H.testCase "chacha20 encrypt" $ do
   o <- ChaCha.encrypt block_key 1 crypt_non crypt_plain
   H.assertEqual mempty crypt_cip o
 
