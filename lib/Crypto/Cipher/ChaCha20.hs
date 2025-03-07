@@ -256,12 +256,16 @@ _block state@(ChaCha s) counter = do
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
+-- | The ChaCha20 block function. Useful for generating a keystream.
+--
+--   Per [RFC8439](https://datatracker.ietf.org/doc/html/rfc8439), the
+--   key must be exactly 256 bits, and the nonce exactly 96 bits.
 block
   :: PrimMonad m
-  => BS.ByteString
-  -> Word32
-  -> BS.ByteString
-  -> m BS.ByteString
+  => BS.ByteString    -- ^ 256-bit key
+  -> Word32           -- ^ 32-bit counter
+  -> BS.ByteString    -- ^ 96-bit nonce
+  -> m BS.ByteString  -- ^ 512-bit keystream
 block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
   | kl /= 32 = error "ppad-chacha (block): invalid key"
   | nl /= 12 = error "ppad-chacha (block): invalid nonce"
@@ -294,13 +298,18 @@ serialize (ChaCha m) = do
 
 -- chacha20 encryption --------------------------------------------------------
 
+-- | The ChaCha20 stream cipher. Generates a keystream and then XOR's the
+--   supplied plaintext with it.
+--
+--   Per [RFC8439](https://datatracker.ietf.org/doc/html/rfc8439), the
+--   key must be exactly 256 bits, and the nonce exactly 96 bits.
 encrypt
   :: PrimMonad m
-  => BS.ByteString
-  -> Word32
-  -> BS.ByteString
-  -> BS.ByteString
-  -> m BS.ByteString
+  => BS.ByteString    -- ^ 256-bit key
+  -> Word32           -- ^ 32-bit counter
+  -> BS.ByteString    -- ^ 96-bit nonce
+  -> BS.ByteString    -- ^ arbitrary-length plaintext
+  -> m BS.ByteString  -- ^ ciphertext
 encrypt raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
   | kl /= 32  = error "ppad-chacha (encrypt): invalid key"
   | nl /= 12  = error "ppad-chacha (encrypt): invalid nonce"
