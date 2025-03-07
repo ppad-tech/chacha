@@ -60,5 +60,6 @@ benchmark chacha-bench
       base
     , bytestring
     , criterion
+    , ppad-base16
     , ppad-chacha
 
