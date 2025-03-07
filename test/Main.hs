@@ -5,7 +5,7 @@
 
 module Main where
 
-import qualified Crypto.Cipher.ChaCha as ChaCha
+import qualified Crypto.Cipher.ChaCha20 as ChaCha
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.Foldable (for_)
@@ -27,7 +27,7 @@ main = defaultMain $ testGroup "ppad-chacha" [
 quarter :: TestTree
 quarter = H.testCase "quarter round" $ do
   let e = (0xea2a92f4, 0xcb1cf8ce, 0x4581472e, 0x5881c4bb)
-      o = ChaCha.quarter' 0x11111111 0x01020304 0x9b8d6f43 0x01234567
+      o = ChaCha._quarter_pure 0x11111111 0x01020304 0x9b8d6f43 0x01234567
   H.assertEqual mempty e o
 
 quarter_fullstate :: TestTree
@@ -41,7 +41,7 @@ quarter_fullstate = H.testCase "quarter round (full chacha state)" $ do
         ]
   hot <- PA.unsafeThawPrimArray inp
 
-  ChaCha.quarter (ChaCha.ChaCha hot) 2 7 8 13
+  ChaCha._quarter (ChaCha.ChaCha hot) 2 7 8 13
 
   o <- PA.unsafeFreezePrimArray hot
 
@@ -64,9 +64,9 @@ block_non = fromJust $ B16.decode "000000090000004a00000000"
 
 chacha20_block_init :: TestTree
 chacha20_block_init = H.testCase "chacha20 state init" $ do
-  let key = ChaCha.parse_key block_key
-      non = ChaCha.parse_nonce block_non
-  ChaCha.ChaCha foo <- ChaCha.chacha key 1 non
+  let key = ChaCha._parse_key block_key
+      non = ChaCha._parse_nonce block_non
+  ChaCha.ChaCha foo <- ChaCha._chacha key 1 non
   state <- PA.freezePrimArray foo 0 16
   let ref = PA.primArrayFromList [
           0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
@@ -78,10 +78,10 @@ chacha20_block_init = H.testCase "chacha20 state init" $ do
 
 chacha20_rounds :: TestTree
 chacha20_rounds = H.testCase "chacha20 20 rounds" $ do
-  let key = ChaCha.parse_key block_key
-      non = ChaCha.parse_nonce block_non
-  state@(ChaCha.ChaCha s) <- ChaCha.chacha key 1 non
-  for_ [1..10 :: Int] (const (ChaCha.rounds state))
+  let key = ChaCha._parse_key block_key
+      non = ChaCha._parse_nonce block_non
+  state@(ChaCha.ChaCha s) <- ChaCha._chacha key 1 non
+  for_ [1..10 :: Int] (const (ChaCha._rounds state))
 
   out <- PA.freezePrimArray s 0 16
 

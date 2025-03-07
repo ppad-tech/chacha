@@ -1,9 +1,25 @@
+{-# OPTIONS_HADDOCK prune #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Crypto.Cipher.ChaCha where
+module Crypto.Cipher.ChaCha20 (
+    -- * ChaCha20 block function
+    block
+
+    -- * ChaCha20 stream cipher
+  , encrypt
+
+    -- testing
+  , ChaCha(..)
+  , _chacha
+  , _parse_key
+  , _parse_nonce
+  , _quarter
+  , _quarter_pure
+  , _rounds
+  ) where
 
 import qualified Data.Bits as B
 import Data.Bits ((.|.), (.<<.), (.^.))
@@ -49,7 +65,7 @@ unsafe_parseWsPair (BI.BS x l) =
 -- chacha quarter round -------------------------------------------------------
 
 -- RFC8439 2.2
-quarter
+_quarter
   :: PrimMonad m
   => ChaCha (PrimState m)
   -> Int
@@ -57,7 +73,7 @@ quarter
   -> Int
   -> Int
   -> m ()
-quarter (ChaCha m) i0 i1 i2 i3 = do
+_quarter (ChaCha m) i0 i1 i2 i3 = do
   !(W32# a) <- PA.readPrimArray m i0
   !(W32# b) <- PA.readPrimArray m i1
   !(W32# c) <- PA.readPrimArray m i2
@@ -69,14 +85,14 @@ quarter (ChaCha m) i0 i1 i2 i3 = do
   PA.writePrimArray m i1 (W32# b1)
   PA.writePrimArray m i2 (W32# c1)
   PA.writePrimArray m i3 (W32# d1)
+{-# INLINEABLE _quarter #-}
 
--- for easy testing
-quarter'
+_quarter_pure
   :: Word32 -> Word32 -> Word32 -> Word32 -> (Word32, Word32, Word32, Word32)
-quarter' (W32# a) (W32# b) (W32# c) (W32# d) =
+_quarter_pure (W32# a) (W32# b) (W32# c) (W32# d) =
   let !(# a', b', c', d' #) = quarter# a b c d
   in  (W32# a', W32# b', W32# c', W32# d')
-{-# INLINE quarter' #-}
+{-# INLINE _quarter_pure #-}
 
 -- RFC8439 2.1
 quarter#
@@ -125,8 +141,8 @@ data Key = Key {
   deriving (Eq, Show)
 
 -- parse strict 256-bit bytestring (length unchecked) to key
-parse_key :: BS.ByteString -> Key
-parse_key bs =
+_parse_key :: BS.ByteString -> Key
+_parse_key bs =
   let !(WSPair k0 t0) = unsafe_parseWsPair bs
       !(WSPair k1 t1) = unsafe_parseWsPair t0
       !(WSPair k2 t2) = unsafe_parseWsPair t1
@@ -137,7 +153,7 @@ parse_key bs =
       !(WSPair k7 t7) = unsafe_parseWsPair t6
   in  if   BS.null t7
       then Key {..}
-      else error "ppad-chacha (parse_key): bytes remaining"
+      else error "ppad-chacha (_parse_key): bytes remaining"
 
 data Nonce = Nonce {
     n0 :: {-# UNPACK #-} !Word32
@@ -147,27 +163,27 @@ data Nonce = Nonce {
   deriving (Eq, Show)
 
 -- parse strict 96-bit bytestring (length unchecked) to nonce
-parse_nonce :: BS.ByteString -> Nonce
-parse_nonce bs =
+_parse_nonce :: BS.ByteString -> Nonce
+_parse_nonce bs =
   let !(WSPair n0 t0) = unsafe_parseWsPair bs
       !(WSPair n1 t1) = unsafe_parseWsPair t0
       !(WSPair n2 t2) = unsafe_parseWsPair t1
   in  if   BS.null t2
       then Nonce {..}
-      else error "ppad-chacha (parse_nonce): bytes remaining"
+      else error "ppad-chacha (_parse_nonce): bytes remaining"
 
 -- chacha20 block function ----------------------------------------------------
 
 newtype ChaCha s = ChaCha (PA.MutablePrimArray s Word32)
   deriving Eq
 
-chacha
+_chacha
   :: PrimMonad m
   => Key
   -> Word32
   -> Nonce
   -> m (ChaCha (PrimState m))
-chacha key counter nonce = do
+_chacha key counter nonce = do
   state <- _chacha_alloc
   _chacha_set state key counter nonce
   pure state
@@ -176,8 +192,6 @@ chacha key counter nonce = do
 _chacha_alloc :: PrimMonad m => m (ChaCha (PrimState m))
 _chacha_alloc = fmap ChaCha (PA.newPrimArray 16)
 {-# INLINE _chacha_alloc #-}
-
--- XX can be optimised more (only change counter)
 
 -- set the values of a chacha state
 _chacha_set
@@ -215,17 +229,17 @@ _chacha_counter (ChaCha arr) counter =
   PA.writePrimArray arr 12 counter
 
 -- two full rounds (eight quarter rounds)
-rounds :: PrimMonad m => ChaCha (PrimState m) -> m ()
-rounds state = do
-  quarter state 00 04 08 12
-  quarter state 01 05 09 13
-  quarter state 02 06 10 14
-  quarter state 03 07 11 15
-  quarter state 00 05 10 15
-  quarter state 01 06 11 12
-  quarter state 02 07 08 13
-  quarter state 03 04 09 14
-{-# INLINEABLE rounds #-}
+_rounds :: PrimMonad m => ChaCha (PrimState m) -> m ()
+_rounds state = do
+  _quarter state 00 04 08 12
+  _quarter state 01 05 09 13
+  _quarter state 02 06 10 14
+  _quarter state 03 07 11 15
+  _quarter state 00 05 10 15
+  _quarter state 01 06 11 12
+  _quarter state 02 07 08 13
+  _quarter state 03 04 09 14
+{-# INLINEABLE _rounds #-}
 
 _block
   :: PrimMonad m
@@ -235,12 +249,33 @@ _block
 _block state@(ChaCha s) counter = do
   _chacha_counter state counter
   i <- PA.freezePrimArray s 0 16
-  for_ [1..10 :: Int] (const (rounds state))
+  for_ [1..10 :: Int] (const (_rounds state))
   for_ [0..15 :: Int] $ \idx -> do
     let iv = PA.indexPrimArray i idx
     sv <- PA.readPrimArray s idx
     PA.writePrimArray s idx (iv + sv)
   serialize state
+
+block
+  :: PrimMonad m
+  => BS.ByteString
+  -> Word32
+  -> BS.ByteString
+  -> m BS.ByteString
+block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
+  | kl /= 32 = error "ppad-chacha (block): invalid key"
+  | nl /= 12 = error "ppad-chacha (block): invalid nonce"
+  | otherwise = do
+      let k = _parse_key key
+          n = _parse_nonce nonce
+      state@(ChaCha s) <- _chacha k counter n
+      i <- PA.freezePrimArray s 0 16
+      for_ [1..10 :: Int] (const (_rounds state))
+      for_ [0..15 :: Int] $ \idx -> do
+        let iv = PA.indexPrimArray i idx
+        sv <- PA.readPrimArray s idx
+        PA.writePrimArray s idx (iv + sv)
+      serialize state
 
 serialize :: PrimMonad m => ChaCha (PrimState m) -> m BS.ByteString
 serialize (ChaCha m) = do
@@ -270,8 +305,8 @@ encrypt raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
   | kl /= 32  = error "ppad-chacha (encrypt): invalid key"
   | nl /= 12  = error "ppad-chacha (encrypt): invalid nonce"
   | otherwise = do
-      let key = parse_key raw_key
-          non = parse_nonce raw_nonce
+      let key = _parse_key raw_key
+          non = _parse_nonce raw_nonce
       _encrypt key counter non plaintext
 
 _encrypt
@@ -282,7 +317,7 @@ _encrypt
   -> BS.ByteString
   -> m BS.ByteString
 _encrypt key counter nonce plaintext = do
-  ChaCha initial <- chacha key counter nonce
+  ChaCha initial <- _chacha key counter nonce
   state@(ChaCha s) <- _chacha_alloc
 
   let loop acc !j bs = case BS.splitAt 64 bs of

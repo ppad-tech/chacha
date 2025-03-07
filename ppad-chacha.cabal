@@ -1,7 +1,7 @@
 cabal-version:      3.0
 name:               ppad-chacha
 version:            0.1.0
-synopsis:           A pure ChaCha stream cipher
+synopsis:           A pure ChaCha20 stream cipher
 license:            MIT
 license-file:       LICENSE
 author:             Jared Tobin
@@ -11,7 +11,7 @@ build-type:         Simple
 tested-with:        GHC == 9.8.1
 extra-doc-files:    CHANGELOG
 description:
-  A pure ChaCha stream cipher
+  A pure ChaCha20 stream cipher
 
 source-repository head
   type:     git
@@ -23,7 +23,7 @@ library
   ghc-options:
       -Wall
   exposed-modules:
-      Crypto.Cipher.ChaCha
+      Crypto.Cipher.ChaCha20
   build-depends:
       base >= 4.9 && < 5
     , bytestring >= 0.9 && < 0.13
