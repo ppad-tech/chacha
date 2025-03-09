@@ -29,6 +29,6 @@ non = fromJust . B16.decode $
 suite :: Benchmark
 suite =
   bgroup "ppad-chacha" [
-    bench "encrypt" $ nfAppIO (ChaCha20.encrypt key 1 non) plain
+    bench "cipher" $ nf (ChaCha20.cipher key 1 non) plain
   ]
 

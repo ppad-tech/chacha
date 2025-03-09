@@ -4,12 +4,21 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Crypto.Cipher.ChaCha20 (
-    -- * ChaCha20 block function
-    block
+-- |
+-- Module: Crypto.Cipher.ChaCha20
+-- Copyright: (c) 2025 Jared Tobin
+-- License: MIT
+-- Maintainer: Jared Tobin <jared@ppad.tech>
+--
+-- A pure ChaCha20 implementation, as specified by
+-- [RFC 8439](https://datatracker.ietf.org/doc/html/rfc8439).
 
+module Crypto.Cipher.ChaCha20 (
     -- * ChaCha20 stream cipher
-  , encrypt
+    cipher
+
+    -- * ChaCha20 block function
+  , block
 
     -- testing
   , ChaCha(..)
@@ -21,6 +30,7 @@ module Crypto.Cipher.ChaCha20 (
   , _rounds
   ) where
 
+import Control.Monad.ST
 import qualified Data.Bits as B
 import Data.Bits ((.|.), (.<<.), (.^.))
 import qualified Data.ByteString as BS
@@ -256,20 +266,21 @@ _block state@(ChaCha s) counter = do
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
+-- RFC8439 2.3
+
 -- | The ChaCha20 block function. Useful for generating a keystream.
 --
 --   Per [RFC8439](https://datatracker.ietf.org/doc/html/rfc8439), the
 --   key must be exactly 256 bits, and the nonce exactly 96 bits.
 block
-  :: PrimMonad m
-  => BS.ByteString    -- ^ 256-bit key
+  :: BS.ByteString    -- ^ 256-bit key
   -> Word32           -- ^ 32-bit counter
   -> BS.ByteString    -- ^ 96-bit nonce
-  -> m BS.ByteString  -- ^ 512-bit keystream
+  -> BS.ByteString    -- ^ 512-bit keystream
 block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
   | kl /= 32 = error "ppad-chacha (block): invalid key"
   | nl /= 12 = error "ppad-chacha (block): invalid nonce"
-  | otherwise = do
+  | otherwise = runST $ do
       let k = _parse_key key
           n = _parse_nonce nonce
       state@(ChaCha s) <- _chacha k counter n
@@ -298,34 +309,44 @@ serialize (ChaCha m) = do
 
 -- chacha20 encryption --------------------------------------------------------
 
--- | The ChaCha20 stream cipher. Generates a keystream and then XOR's the
---   supplied plaintext with it.
+-- RFC8439 2.4
+
+-- | The ChaCha20 stream cipher. Generates a keystream and then XOR's
+--   the supplied input with it; use it both to encrypt plaintext and
+--   decrypt ciphertext.
 --
 --   Per [RFC8439](https://datatracker.ietf.org/doc/html/rfc8439), the
 --   key must be exactly 256 bits, and the nonce exactly 96 bits.
-encrypt
-  :: PrimMonad m
-  => BS.ByteString    -- ^ 256-bit key
+--
+--   >>> let key = "don't tell anyone my secret key!"
+--   >>> let non = "or my nonce!"
+--   >>> let cip = cipher key 1 non "but you can share the plaintext"
+--   >>> cip
+--   "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\138\146:^\206\&0\v[\201"
+--   >>> cipher key 1 non cip
+--   "but you can share the plaintext"
+cipher
+  :: BS.ByteString    -- ^ 256-bit key
   -> Word32           -- ^ 32-bit counter
   -> BS.ByteString    -- ^ 96-bit nonce
   -> BS.ByteString    -- ^ arbitrary-length plaintext
-  -> m BS.ByteString  -- ^ ciphertext
-encrypt raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
-  | kl /= 32  = error "ppad-chacha (encrypt): invalid key"
-  | nl /= 12  = error "ppad-chacha (encrypt): invalid nonce"
-  | otherwise = do
+  -> BS.ByteString    -- ^ ciphertext
+cipher raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
+  | kl /= 32  = error "ppad-chacha (cipher): invalid key"
+  | nl /= 12  = error "ppad-chacha (cipher): invalid nonce"
+  | otherwise = runST $ do
       let key = _parse_key raw_key
           non = _parse_nonce raw_nonce
-      _encrypt key counter non plaintext
+      _cipher key counter non plaintext
 
-_encrypt
+_cipher
   :: PrimMonad m
   => Key
   -> Word32
   -> Nonce
   -> BS.ByteString
   -> m BS.ByteString
-_encrypt key counter nonce plaintext = do
+_cipher key counter nonce plaintext = do
   ChaCha initial <- _chacha key counter nonce
   state@(ChaCha s) <- _chacha_alloc
 
@@ -340,5 +361,5 @@ _encrypt key counter nonce plaintext = do
               loop (acc <> BSB.byteString cip) (j + 1) etc
 
   loop mempty counter plaintext
-{-# INLINE _encrypt #-}
+{-# INLINE _cipher #-}
 

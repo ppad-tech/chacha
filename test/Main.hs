@@ -111,6 +111,6 @@ crypt_non = case B16.decode "000000000000004a00000000" of
 
 encrypt :: TestTree
 encrypt = H.testCase "chacha20 encrypt" $ do
-  o <- ChaCha.encrypt block_key 1 crypt_non crypt_plain
+  let o = ChaCha.cipher block_key 1 crypt_non crypt_plain
   H.assertEqual mempty crypt_cip o
 
