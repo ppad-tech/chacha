@@ -1,0 +1,6 @@
+# Changelog
+
+- 0.1.0 (2025-03-09)
+  * Initial release, supporting the chacha20 stream cipher and block
+    function.
+
