@@ -58,6 +58,8 @@ This library aims at the maximum security achievable in a
 garbage-collected language under an optimizing compiler such as GHC, in
 which strict constant-timeness can be [challenging to achieve][const].
 
+The ChaCha20 cipher within passes all test vectors from RFC8439.
+
 If you discover any vulnerabilities, please disclose them via
 security@ppad.tech.
 

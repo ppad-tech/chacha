@@ -352,7 +352,7 @@ _cipher key counter nonce plaintext = do
 
   let loop acc !j bs = case BS.splitAt 64 bs of
         (chunk@(BI.PS _ _ l), etc)
-          | l == 0 && BS.length etc == 0 -> pure $
+          | l == 0 && BS.length etc == 0 -> pure $ -- XX
               BS.toStrict (BSB.toLazyByteString acc)
           | otherwise -> do
               PA.copyMutablePrimArray s 0 initial 0 16
