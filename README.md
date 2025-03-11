@@ -58,7 +58,11 @@ This library aims at the maximum security achievable in a
 garbage-collected language under an optimizing compiler such as GHC, in
 which strict constant-timeness can be [challenging to achieve][const].
 
-The ChaCha20 cipher within passes all test vectors from RFC8439.
+The ChaCha20 cipher within passes all test vectors from RFC8439,
+and the downstream AEAD-ChaCha20-Poly1305 implementation in
+[ppad-aead](https://github.com/ppad-tech/aead) passes all the [Project
+Wycheproof vectors][wyche].
+
 
 If you discover any vulnerabilities, please disclose them via
 security@ppad.tech.
@@ -85,3 +89,4 @@ to get a REPL for the main library.
 [flake]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-flake.html
 [hadoc]: https://docs.ppad.tech/chacha
 [const]: https://www.chosenplaintext.ca/articles/beginners-guide-constant-time-cryptography.html
+[wyche]: https://github.com/C2SP/wycheproof
