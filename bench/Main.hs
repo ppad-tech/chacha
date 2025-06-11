@@ -1,13 +1,22 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Main where
 
+import Control.DeepSeq
 import Criterion.Main
 import qualified Crypto.Cipher.ChaCha20 as ChaCha20
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.Maybe (fromJust)
+import GHC.Generics
+
+deriving instance Generic ChaCha20.Error
+
+instance NFData ChaCha20.Error
 
 main :: IO ()
 main = defaultMain [

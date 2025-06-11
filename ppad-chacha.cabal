@@ -60,6 +60,7 @@ benchmark chacha-bench
       base
     , bytestring
     , criterion
+    , deepseq
     , ppad-base16
     , ppad-chacha
 

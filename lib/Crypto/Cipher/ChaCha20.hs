@@ -20,6 +20,9 @@ module Crypto.Cipher.ChaCha20 (
     -- * ChaCha20 block function
   , block
 
+    -- * Error information
+  , Error(..)
+
     -- testing
   , ChaCha(..)
   , _chacha
@@ -266,6 +269,11 @@ _block state@(ChaCha s) counter = do
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
+data Error =
+    InvalidKey
+  | InvalidNonce
+  deriving (Eq, Show)
+
 -- RFC8439 2.3
 
 -- | The ChaCha20 block function. Useful for generating a keystream.
@@ -276,11 +284,11 @@ block
   :: BS.ByteString    -- ^ 256-bit key
   -> Word32           -- ^ 32-bit counter
   -> BS.ByteString    -- ^ 96-bit nonce
-  -> BS.ByteString    -- ^ 512-bit keystream
+  -> Either Error BS.ByteString    -- ^ 512-bit keystream
 block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
-  | kl /= 32 = error "ppad-chacha (block): invalid key"
-  | nl /= 12 = error "ppad-chacha (block): invalid nonce"
-  | otherwise = runST $ do
+  | kl /= 32 = Left InvalidKey
+  | nl /= 12 = Left InvalidNonce
+  | otherwise = pure $ runST $ do
       let k = _parse_key key
           n = _parse_nonce nonce
       state@(ChaCha s) <- _chacha k counter n
@@ -330,11 +338,11 @@ cipher
   -> Word32           -- ^ 32-bit counter
   -> BS.ByteString    -- ^ 96-bit nonce
   -> BS.ByteString    -- ^ arbitrary-length plaintext
-  -> BS.ByteString    -- ^ ciphertext
+  -> Either Error BS.ByteString    -- ^ ciphertext
 cipher raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
-  | kl /= 32  = error "ppad-chacha (cipher): invalid key"
-  | nl /= 12  = error "ppad-chacha (cipher): invalid nonce"
-  | otherwise = runST $ do
+  | kl /= 32  = Left InvalidKey
+  | nl /= 12  = Left InvalidNonce
+  | otherwise = pure $ runST $ do
       let key = _parse_key raw_key
           non = _parse_nonce raw_nonce
       _cipher key counter non plaintext
