@@ -166,7 +166,7 @@ _parse_key bs =
       !(WSPair k7 t7) = unsafe_parseWsPair t6
   in  if   BS.null t7
       then Key {..}
-      else error "ppad-chacha (_parse_key): bytes remaining"
+      else error "ppad-chacha (_parse_key): internal error, bytes remaining"
 
 data Nonce = Nonce {
     n0 :: {-# UNPACK #-} !Word32
@@ -183,7 +183,7 @@ _parse_nonce bs =
       !(WSPair n2 t2) = unsafe_parseWsPair t1
   in  if   BS.null t2
       then Nonce {..}
-      else error "ppad-chacha (_parse_nonce): bytes remaining"
+      else error "ppad-chacha (_parse_nonce): internal error, bytes remaining"
 
 -- chacha20 block function ----------------------------------------------------
 
