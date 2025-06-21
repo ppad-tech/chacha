@@ -1,5 +1,10 @@
 # Changelog
 
+- 0.2.0 (2025-06-21)
+  * Both the ChaCha block function and stream cipher are now total,
+    returning values of 'Left InvalidKey' or 'Left InvalidNonce' when
+    supplied with the corresponding bad inputs.
+
 - 0.1.0 (2025-03-09)
   * Initial release, supporting the chacha20 stream cipher and block
     function.

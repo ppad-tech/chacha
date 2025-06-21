@@ -332,7 +332,7 @@ serialize (ChaCha m) = do
 --   >>> cip
 --   "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\138\146:^\206\&0\v[\201"
 --   >>> cipher key 1 non cip
---   "but you can share the plaintext"
+--   Right "but you can share the plaintext"
 cipher
   :: BS.ByteString    -- ^ 256-bit key
   -> Word32           -- ^ 32-bit counter
