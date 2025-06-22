@@ -269,9 +269,10 @@ _block state@(ChaCha s) counter = do
     PA.writePrimArray s idx (iv + sv)
   serialize state
 
+-- | Error values.
 data Error =
-    InvalidKey
-  | InvalidNonce
+    InvalidKey   -- ^ the provided key was not 256 bits long
+  | InvalidNonce -- ^ the provided nonce was none 96 bits long
   deriving (Eq, Show)
 
 -- RFC8439 2.3
