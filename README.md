@@ -45,11 +45,13 @@ benchmark suite):
 
 ```
   benchmarking ppad-chacha/cipher
-  time                 770.2 ns   (769.9 ns .. 770.5 ns)
+  time                 485.7 ns   (485.2 ns .. 486.3 ns)
                        1.000 R²   (1.000 R² .. 1.000 R²)
-  mean                 770.2 ns   (770.0 ns .. 770.5 ns)
-  std dev              794.7 ps   (653.0 ps .. 999.5 ps)
+  mean                 485.9 ns   (485.1 ns .. 486.3 ns)
+  std dev              1.943 ns   (1.389 ns .. 2.809 ns)
 ```
+
+You should compile with the 'llvm' flag for maximum performance.
 
 ## Security
 
@@ -61,7 +63,6 @@ The ChaCha20 cipher within passes all test vectors from RFC8439,
 and the downstream AEAD-ChaCha20-Poly1305 implementation in
 [ppad-aead](https://github.com/ppad-tech/aead) passes all the [Project
 Wycheproof vectors][wyche].
-
 
 If you discover any vulnerabilities, please disclose them via
 security@ppad.tech.

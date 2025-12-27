@@ -13,6 +13,11 @@ extra-doc-files:    CHANGELOG
 description:
   A pure ChaCha20 stream cipher and block function.
 
+flag llvm
+  description: Use GHC's LLVM backend.
+  default:     False
+  manual:      True
+
 source-repository head
   type:     git
   location: git.ppad.tech/chacha.git
@@ -22,6 +27,8 @@ library
   hs-source-dirs:   lib
   ghc-options:
       -Wall
+  if flag(llvm)
+    ghc-options: -fllvm -O2
   exposed-modules:
       Crypto.Cipher.ChaCha20
   build-depends:
