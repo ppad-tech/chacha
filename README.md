@@ -45,10 +45,10 @@ benchmark suite):
 
 ```
   benchmarking ppad-chacha/cipher
-  time                 485.7 ns   (485.2 ns .. 486.3 ns)
+  time                 468.3 ns   (467.9 ns .. 468.8 ns)
                        1.000 R²   (1.000 R² .. 1.000 R²)
-  mean                 485.9 ns   (485.1 ns .. 486.3 ns)
-  std dev              1.943 ns   (1.389 ns .. 2.809 ns)
+  mean                 468.4 ns   (468.0 ns .. 469.2 ns)
+  std dev              2.041 ns   (1.317 ns .. 3.539 ns)
 ```
 
 You should compile with the 'llvm' flag for maximum performance.
