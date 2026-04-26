@@ -151,7 +151,7 @@ data Key = Key {
   , k6 :: {-# UNPACK #-} !Word32
   , k7 :: {-# UNPACK #-} !Word32
   }
-  deriving (Eq, Show)
+  deriving Show
 
 -- parse strict 256-bit bytestring (length unchecked) to key
 _parse_key :: BS.ByteString -> Key
@@ -173,7 +173,7 @@ data Nonce = Nonce {
   , n1 :: {-# UNPACK #-} !Word32
   , n2 :: {-# UNPACK #-} !Word32
   }
-  deriving (Eq, Show)
+  deriving Show
 
 -- parse strict 96-bit bytestring (length unchecked) to nonce
 _parse_nonce :: BS.ByteString -> Nonce
