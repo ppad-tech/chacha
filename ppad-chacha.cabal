@@ -1,7 +1,7 @@
 cabal-version:      3.0
 name:               ppad-chacha
 version:            0.2.1
-synopsis:           A pure ChaCha20 stream cipher
+synopsis:           A fast ChaCha20 stream cipher
 license:            MIT
 license-file:       LICENSE
 author:             Jared Tobin
@@ -11,10 +11,15 @@ build-type:         Simple
 tested-with:        GHC == 9.10.3
 extra-doc-files:    CHANGELOG
 description:
-  A pure ChaCha20 stream cipher and block function.
+  A fast ChaCha20 stream cipher and block function.
 
 flag llvm
   description: Use GHC's LLVM backend.
+  default:     False
+  manual:      True
+
+flag sanitize
+  description: Build with AddressSanitizer and UndefinedBehaviorSanitizer.
   default:     False
   manual:      True
 
@@ -31,10 +36,18 @@ library
     ghc-options: -fllvm -O2
   exposed-modules:
       Crypto.Cipher.ChaCha20
+      Crypto.Cipher.ChaCha20.Arm
   build-depends:
       base >= 4.9 && < 5
     , bytestring >= 0.9 && < 0.13
     , primitive >= 0.8 && < 0.10
+  c-sources:
+      cbits/chacha20_arm.c
+  if arch(aarch64)
+    cc-options: -march=armv8-a
+  if flag(sanitize)
+    cc-options: -fsanitize=address,undefined -fno-omit-frame-pointer
+    ghc-options: -optl=-fsanitize=address,undefined
 
 test-suite chacha-tests
   type:                exitcode-stdio-1.0
@@ -44,6 +57,8 @@ test-suite chacha-tests
 
   ghc-options:
     -rtsopts -Wall -O2
+  if flag(sanitize)
+    ghc-options: -optl=-fsanitize=address,undefined
 
   build-depends:
       base

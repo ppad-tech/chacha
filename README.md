@@ -4,7 +4,7 @@
 ![](https://img.shields.io/badge/license-MIT-brightgreen)
 [![](https://img.shields.io/badge/haddock-chacha-lightblue)](https://docs.ppad.tech/chacha)
 
-A pure Haskell implementation of the ChaCha20 stream cipher as specified
+A fast Haskell implementation of the ChaCha20 stream cipher as specified
 by [RFC8439][8439].
 
 ## Usage
@@ -36,19 +36,17 @@ Haddocks (API documentation, etc.) are hosted at
 
 ## Performance
 
-The aim is best-in-class performance for pure, highly-auditable Haskell
-code.
-
-Current benchmark figures on the simple "sunscreen input" from RFC8439
-on an M4 Silicon MacBook Air look like (use `cabal bench` to run the
-benchmark suite):
+The aim is best-in-class performance. Current benchmark figures on the
+simple "sunscreen input" from RFC8439 on an M4 Silicon MacBook Air,
+where we avail of hardware acceleration via ARM NEON intrinsics, look
+like (use `cabal bench` to run the benchmark suite):
 
 ```
   benchmarking ppad-chacha/cipher
-  time                 468.3 ns   (467.9 ns .. 468.8 ns)
-                       1.000 R²   (1.000 R² .. 1.000 R²)
-  mean                 468.4 ns   (468.0 ns .. 469.2 ns)
-  std dev              2.041 ns   (1.317 ns .. 3.539 ns)
+  time                 267.1 ns   (266.0 ns .. 268.2 ns)
+                       1.000 R²   (0.999 R² .. 1.000 R²)
+  mean                 267.1 ns   (264.8 ns .. 270.3 ns)
+  std dev              8.576 ns   (6.191 ns .. 11.56 ns)
 ```
 
 You should compile with the 'llvm' flag for maximum performance.
