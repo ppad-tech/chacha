@@ -34,6 +34,7 @@ module Crypto.Cipher.ChaCha20 (
   ) where
 
 import Control.Monad.ST
+import qualified Crypto.Cipher.ChaCha20.Arm as Arm
 import qualified Data.Bits as B
 import Data.Bits ((.|.), (.<<.), (.^.))
 import qualified Data.ByteString as BS
@@ -289,6 +290,8 @@ block
 block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
   | kl /= 32 = Left InvalidKey
   | nl /= 12 = Left InvalidNonce
+  | Arm.chacha20_arm_available =
+      Right (Arm.block key counter nonce)
   | otherwise = pure $ runST $ do
       let k = _parse_key key
           n = _parse_nonce nonce
@@ -341,8 +344,10 @@ cipher
   -> BS.ByteString    -- ^ arbitrary-length plaintext
   -> Either Error BS.ByteString    -- ^ ciphertext
 cipher raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
-  | kl /= 32  = Left InvalidKey
-  | nl /= 12  = Left InvalidNonce
+  | kl /= 32 = Left InvalidKey
+  | nl /= 12 = Left InvalidNonce
+  | Arm.chacha20_arm_available =
+      Right (Arm.cipher raw_key counter raw_nonce plaintext)
   | otherwise = pure $ runST $ do
       let key = _parse_key raw_key
           non = _parse_nonce raw_nonce
