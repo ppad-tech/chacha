@@ -4,7 +4,7 @@
 ![](https://img.shields.io/badge/license-MIT-brightgreen)
 [![](https://img.shields.io/badge/haddock-chacha-lightblue)](https://docs.ppad.tech/chacha)
 
-A pure Haskell implementation of the ChaCha20 stream cipher as specified
+A fast Haskell implementation of the ChaCha20 stream cipher as specified
 by [RFC8439][8439].
 
 ## Usage
@@ -36,8 +36,7 @@ Haddocks (API documentation, etc.) are hosted at
 
 ## Performance
 
-The aim is best-in-class performance for pure, highly-auditable Haskell
-code.
+The aim is best-in-class performance.
 
 Current benchmark figures on the simple "sunscreen input" from RFC8439
 on an M4 Silicon MacBook Air look like (use `cabal bench` to run the

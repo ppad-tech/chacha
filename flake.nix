@@ -1,5 +1,5 @@
 {
-  description = "A pure Haskell ChaCha stream cipher.";
+  description = "A fast Haskell ChaCha stream cipher.";
 
   inputs = {
     ppad-base16 = {

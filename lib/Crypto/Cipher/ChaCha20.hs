@@ -10,7 +10,7 @@
 -- License: MIT
 -- Maintainer: Jared Tobin <jared@ppad.tech>
 --
--- A pure ChaCha20 implementation, as specified by
+-- A fast ChaCha20 implementation, as specified by
 -- [RFC 8439](https://datatracker.ietf.org/doc/html/rfc8439).
 
 module Crypto.Cipher.ChaCha20 (
