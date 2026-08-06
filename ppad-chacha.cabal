@@ -36,6 +36,7 @@ library
     ghc-options: -fllvm -O2
   exposed-modules:
       Crypto.Cipher.ChaCha20
+  other-modules:
       Crypto.Cipher.ChaCha20.Arm
   build-depends:
       base >= 4.9 && < 5
@@ -103,4 +104,3 @@ benchmark chacha-weigh
     , deepseq
     , ppad-chacha
     , weigh
-
