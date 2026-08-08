@@ -20,13 +20,13 @@ A sample GHCi session:
   > -- encrypt some plaintext using a secret key and nonce
   > let key = "don't tell anyone my secret key!"
   > let non = "or my nonce!"
-  > let Right ciphertext = ChaCha20.cipher key 1 non "but you can share the plaintext"
+  > let Right ciphertext = ChaCha20.cipher key 1 non "but you can share the ciphertext"
   > ciphertext
-  "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\138\146:^\206\&0\v[\201"
+  "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\153\151+_\197\&6\SUBF\197\160"
   >
   > -- use the cipher with the same key, counter, and nonce to decrypt the ciphertext
   > ChaCha20.cipher key 1 non ciphertext
-  Right "but you can share the plaintext"
+  Right "but you can share the ciphertext"
 ```
 
 ## Documentation

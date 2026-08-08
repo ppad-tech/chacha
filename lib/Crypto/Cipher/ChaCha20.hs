@@ -332,11 +332,11 @@ serialize (ChaCha m) = do
 --
 --   >>> let key = "don't tell anyone my secret key!"
 --   >>> let non = "or my nonce!"
---   >>> let cip = cipher key 1 non "but you can share the plaintext"
+--   >>> let Right cip = cipher key 1 non "but you can share the ciphertext"
 --   >>> cip
---   "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\138\146:^\206\&0\v[\201"
+--   "\192*c\248A\204\211n\130y8\197\146k\245\178Y\197=\180_\223\153\151+_\197\&6\SUBF\197\160"
 --   >>> cipher key 1 non cip
---   Right "but you can share the plaintext"
+--   Right "but you can share the ciphertext"
 cipher
   :: BS.ByteString    -- ^ 256-bit key
   -> Word32           -- ^ 32-bit counter
