@@ -26,6 +26,8 @@ main = defaultMain $ testGroup "ppad-chacha" [
   , crypt1
   , crypt2
   , crypt3
+  , counter_boundary
+  , counter_overflow
   ]
 
 quarter :: TestTree
@@ -162,3 +164,27 @@ crypt3 = H.testCase "chacha20 encrypt (A.2 #3)" $ do
       Right out = ChaCha.cipher key con non plain
   H.assertEqual mempty cip out
 
+-- counter overflow
+
+overflow_key :: BS.ByteString
+overflow_key = fromJust . B16.decode $
+  "0000000000000000000000000000000000000000000000000000000000000000"
+
+overflow_non :: BS.ByteString
+overflow_non = fromJust . B16.decode $ "000000000000000000000000"
+
+counter_boundary :: TestTree
+counter_boundary = H.testCase "chacha20 encrypt (counter boundary)" $ do
+  let con = maxBound - 1
+      plain = BS.replicate 128 0
+      Right b0 = ChaCha.block overflow_key con overflow_non
+      Right b1 = ChaCha.block overflow_key maxBound overflow_non
+      Right out = ChaCha.cipher overflow_key con overflow_non plain
+  H.assertEqual mempty (b0 <> b1) out
+
+counter_overflow :: TestTree
+counter_overflow = H.testCase "chacha20 encrypt (counter overflow)" $ do
+  let con = maxBound - 1
+      plain = BS.replicate 129 0
+      out = ChaCha.cipher overflow_key con overflow_non plain
+  H.assertEqual mempty (Left ChaCha.CounterOverflow) out
