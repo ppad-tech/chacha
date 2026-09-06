@@ -1,5 +1,8 @@
 # Changelog
 
+- 0.3.0 (2026-09-06)
+  * Adds a counter overflow error.
+
 - 0.2.2 (2026-05-16)
   * Features order-of-magnitude performance improvements, especially
     on ARM platforms where NEON intrinsics are available.
