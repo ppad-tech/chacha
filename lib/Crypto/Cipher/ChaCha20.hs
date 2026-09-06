@@ -3,6 +3,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Crypto.Cipher.ChaCha20
@@ -272,8 +273,9 @@ _block state@(ChaCha s) counter = do
 
 -- | Error values.
 data Error =
-    InvalidKey   -- ^ the provided key was not 256 bits long
-  | InvalidNonce -- ^ the provided nonce was none 96 bits long
+    CounterOverflow -- ^ the counter overflowed
+  | InvalidKey      -- ^ the provided key was not 256 bits long
+  | InvalidNonce    -- ^ the provided nonce was not 96 bits long
   deriving (Eq, Show)
 
 -- RFC8439 2.3
@@ -343,15 +345,22 @@ cipher
   -> BS.ByteString    -- ^ 96-bit nonce
   -> BS.ByteString    -- ^ arbitrary-length plaintext
   -> Either Error BS.ByteString    -- ^ ciphertext
-cipher raw_key@(BI.PS _ _ kl) counter raw_nonce@(BI.PS _ _ nl) plaintext
-  | kl /= 32 = Left InvalidKey
-  | nl /= 12 = Left InvalidNonce
-  | Arm.chacha20_arm_available =
-      Right (Arm.cipher raw_key counter raw_nonce plaintext)
-  | otherwise = pure $ runST $ do
-      let key = _parse_key raw_key
-          non = _parse_nonce raw_nonce
-      _cipher key counter non plaintext
+cipher
+        raw_key@(BI.PS _ _ kl)
+        counter
+        raw_nonce@(BI.PS _ _ nl)
+        plaintext@(BI.PS _ _ (fi -> pl))
+    | kl /= 32  = Left InvalidKey
+    | nl /= 12  = Left InvalidNonce
+    | pl > room = Left CounterOverflow
+    | Arm.chacha20_arm_available =
+        Right (Arm.cipher raw_key counter raw_nonce plaintext)
+    | otherwise = pure $ runST $ do
+        let key = _parse_key raw_key
+            non = _parse_nonce raw_nonce
+        _cipher key counter non plaintext
+  where
+    room = (0x100000000 - fi counter) * 64 :: Word64
 
 _cipher
   :: PrimMonad m
