@@ -1,5 +1,10 @@
 # Changelog
 
+- 0.3.1 (2026-10-31)
+  * Uses SSE2 on x86_64, along with AVX2 on CPUs that support it,
+    detected at runtime. With AVX2, 'cipher' is roughly 3.5x faster on
+    short inputs and over 10x faster on long ones.
+
 - 0.3.0 (2026-09-06)
   * Adds a counter overflow error.
 
