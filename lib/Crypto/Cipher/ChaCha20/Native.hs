@@ -7,7 +7,7 @@
 -- License: MIT
 -- Maintainer: Jared Tobin <jared@ppad.tech>
 --
--- Vectorised ChaCha20, via ARM NEON or x86 SSE2.
+-- Vectorised ChaCha20, via ARM NEON, or x86 SSE2 and AVX2.
 
 module Crypto.Cipher.ChaCha20.Native (
     chacha20_native_available
