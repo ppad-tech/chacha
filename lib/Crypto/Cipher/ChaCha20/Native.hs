@@ -2,15 +2,15 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- |
--- Module: Crypto.Cipher.ChaCha20.Arm
+-- Module: Crypto.Cipher.ChaCha20.Native
 -- Copyright: (c) 2025 Jared Tobin
 -- License: MIT
 -- Maintainer: Jared Tobin <jared@ppad.tech>
 --
 -- ARM NEON support for the ChaCha20 stream cipher.
 
-module Crypto.Cipher.ChaCha20.Arm (
-    chacha20_arm_available
+module Crypto.Cipher.ChaCha20.Native (
+    chacha20_native_available
   , block
   , cipher
   ) where
@@ -25,17 +25,17 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 
 -- ffi ------------------------------------------------------------------------
 
-foreign import ccall unsafe "chacha20_block_arm"
+foreign import ccall unsafe "chacha20_block_native"
   c_chacha20_block
     :: Ptr Word8 -> Word32 -> Ptr Word8 -> Ptr Word8 -> IO ()
 
-foreign import ccall unsafe "chacha20_cipher_arm"
+foreign import ccall unsafe "chacha20_cipher_native"
   c_chacha20_cipher
     :: Ptr Word8 -> Word32 -> Ptr Word8
     -> Ptr Word8 -> Ptr Word8 -> CSize -> IO ()
 
-foreign import ccall unsafe "chacha20_arm_available"
-  c_chacha20_arm_available :: IO CInt
+foreign import ccall unsafe "chacha20_native_available"
+  c_chacha20_native_available :: IO CInt
 
 -- utilities ------------------------------------------------------------------
 
@@ -46,10 +46,10 @@ fi = fromIntegral
 -- api ------------------------------------------------------------------------
 
 -- | Are ARM NEON extensions available?
-chacha20_arm_available :: Bool
-chacha20_arm_available =
-  unsafeDupablePerformIO c_chacha20_arm_available /= 0
-{-# NOINLINE chacha20_arm_available #-}
+chacha20_native_available :: Bool
+chacha20_native_available =
+  unsafeDupablePerformIO c_chacha20_native_available /= 0
+{-# NOINLINE chacha20_native_available #-}
 
 -- | One 64-byte ChaCha20 keystream block for the given (already-
 --   validated) key, counter, and nonce.

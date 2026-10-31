@@ -95,8 +95,8 @@ static inline void chacha20_setup(const uint8_t key[32],
 /*
  * Generate one 64-byte ChaCha20 keystream block at 'out'.
  */
-void chacha20_block_arm(const uint8_t key[32], uint32_t counter,
-                        const uint8_t nonce[12], uint8_t out[64]) {
+void chacha20_block_native(const uint8_t key[32], uint32_t counter,
+                           const uint8_t nonce[12], uint8_t out[64]) {
     uint32x4_t s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
@@ -117,10 +117,10 @@ void chacha20_block_arm(const uint8_t key[32], uint32_t counter,
  * with the given key, starting counter, and nonce.  Stream cipher,
  * so the same routine decrypts.
  */
-void chacha20_cipher_arm(const uint8_t key[32], uint32_t counter,
-                         const uint8_t nonce[12],
-                         const uint8_t *in, uint8_t *out,
-                         size_t inlen) {
+void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
+                            const uint8_t nonce[12],
+                            const uint8_t *in, uint8_t *out,
+                            size_t inlen) {
     uint32x4_t s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
@@ -170,29 +170,29 @@ void chacha20_cipher_arm(const uint8_t key[32], uint32_t counter,
     }
 }
 
-int chacha20_arm_available(void) {
+int chacha20_native_available(void) {
     return 1;
 }
 
 #else
 
 /* stubs for non-aarch64 builds; never reached because dispatch is
- * gated on 'chacha20_arm_available' returning 0                  */
+ * gated on 'chacha20_native_available' returning 0               */
 
-void chacha20_block_arm(const uint8_t *key, uint32_t counter,
-                        const uint8_t *nonce, uint8_t *out) {
+void chacha20_block_native(const uint8_t *key, uint32_t counter,
+                           const uint8_t *nonce, uint8_t *out) {
     (void)key; (void)counter; (void)nonce; (void)out;
 }
 
-void chacha20_cipher_arm(const uint8_t *key, uint32_t counter,
-                         const uint8_t *nonce,
-                         const uint8_t *in, uint8_t *out,
-                         size_t inlen) {
+void chacha20_cipher_native(const uint8_t *key, uint32_t counter,
+                            const uint8_t *nonce,
+                            const uint8_t *in, uint8_t *out,
+                            size_t inlen) {
     (void)key; (void)counter; (void)nonce;
     (void)in; (void)out; (void)inlen;
 }
 
-int chacha20_arm_available(void) {
+int chacha20_native_available(void) {
     return 0;
 }
 
