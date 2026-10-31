@@ -35,9 +35,17 @@ non :: BS.ByteString
 non = fromJust . B16.decode $
   "000000090000004a00000000"
 
+plain_1k :: BS.ByteString
+plain_1k = BS.replicate 1024 0x42
+
+plain_4k :: BS.ByteString
+plain_4k = BS.replicate 4096 0x42
+
 suite :: Benchmark
 suite =
   bgroup "ppad-chacha" [
     bench "cipher" $ nf (ChaCha20.cipher key 1 non) plain
+  , bench "cipher (1024B)" $ nf (ChaCha20.cipher key 1 non) plain_1k
+  , bench "cipher (4096B)" $ nf (ChaCha20.cipher key 1 non) plain_4k
   ]
 
