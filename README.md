@@ -36,10 +36,11 @@ Haddocks (API documentation, etc.) are hosted at
 
 ## Performance
 
-The aim is best-in-class performance. Current benchmark figures on the
-simple "sunscreen input" from RFC8439 on an M4 Silicon MacBook Air,
-where we avail of hardware acceleration via ARM NEON intrinsics, look
-like (use `cabal bench` to run the benchmark suite):
+The aim is best-in-class performance. We avail of hardware
+acceleration via ARM NEON on aarch64, and x86 SSE2 on x86_64, along
+with AVX2 whenever the CPU supports it. Current benchmark figures on
+the simple "sunscreen input" from RFC8439 on an M4 Silicon MacBook Air
+look like (use `cabal bench` to run the benchmark suite):
 
 ```
   benchmarking ppad-chacha/cipher
