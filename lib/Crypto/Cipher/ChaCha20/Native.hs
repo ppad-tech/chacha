@@ -7,7 +7,7 @@
 -- License: MIT
 -- Maintainer: Jared Tobin <jared@ppad.tech>
 --
--- ARM NEON support for the ChaCha20 stream cipher.
+-- Vectorised ChaCha20, via ARM NEON or x86 SSE2.
 
 module Crypto.Cipher.ChaCha20.Native (
     chacha20_native_available
@@ -45,7 +45,7 @@ fi = fromIntegral
 
 -- api ------------------------------------------------------------------------
 
--- | Are ARM NEON extensions available?
+-- | Is a vectorised kernel available?
 chacha20_native_available :: Bool
 chacha20_native_available =
   unsafeDupablePerformIO c_chacha20_native_available /= 0
