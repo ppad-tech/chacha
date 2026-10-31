@@ -37,13 +37,13 @@ library
   exposed-modules:
       Crypto.Cipher.ChaCha20
   other-modules:
-      Crypto.Cipher.ChaCha20.Arm
+      Crypto.Cipher.ChaCha20.Native
   build-depends:
       base >= 4.9 && < 5
     , bytestring >= 0.9 && < 0.13
     , primitive >= 0.8 && < 0.10
   c-sources:
-      cbits/chacha20_arm.c
+      cbits/chacha20_native.c
   if arch(aarch64)
     cc-options: -march=armv8-a
   if flag(sanitize)
