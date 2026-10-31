@@ -27,6 +27,7 @@ module Crypto.Cipher.ChaCha20 (
     -- testing
   , ChaCha(..)
   , _chacha
+  , _cipher
   , _parse_key
   , _parse_nonce
   , _quarter

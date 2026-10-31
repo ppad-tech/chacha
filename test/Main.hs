@@ -6,6 +6,7 @@
 
 module Main where
 
+import Control.Monad.ST (runST)
 import qualified Crypto.Cipher.ChaCha20 as ChaCha
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
@@ -28,6 +29,7 @@ main = defaultMain $ testGroup "ppad-chacha" [
   , crypt3
   , counter_boundary
   , counter_overflow
+  , dispatch
   ]
 
 quarter :: TestTree
@@ -188,3 +190,24 @@ counter_overflow = H.testCase "chacha20 encrypt (counter overflow)" $ do
       plain = BS.replicate 129 0
       out = ChaCha.cipher overflow_key con overflow_non plain
   H.assertEqual mempty (Left ChaCha.CounterOverflow) out
+
+-- dispatching vs pure
+
+-- the dispatching 'cipher' agrees with the pure Haskell implementation
+-- for every input length from 0 to 640 bytes, covering partial blocks,
+-- short tails, and any multi-block paths. the second counter puts the
+-- final block of a 640-byte input at the maximum counter value.
+dispatch :: TestTree
+dispatch = H.testCase "chacha20 encrypt (dispatch vs pure)" $
+  for_ keys $ \key ->
+  for_ [1, maxBound - 9] $ \con ->
+  for_ [0..640] $ \l -> do
+    let msg = BS.take l plain
+        Right out = ChaCha.cipher key con block_non msg
+        ref = runST $
+          ChaCha._cipher (ChaCha._parse_key key) con
+                         (ChaCha._parse_nonce block_non) msg
+    H.assertEqual ("length " <> show l) ref out
+  where
+    keys = [block_key, BS.replicate 32 0xff]
+    plain = BS.pack [fromIntegral (i * 7 + 3) | i <- [0..639 :: Int]]
