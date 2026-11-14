@@ -69,7 +69,8 @@ drounds r = case r of
 --   at the given block counter.
 --
 --   The key must be exactly 256 bits, and the nonce exactly 96 bits.
---   The counter must leave room for the requested number of bytes.
+--   The counter must leave room for the requested number of bytes;
+--   non-positive numbers of bytes yield the empty string.
 --
 --   >>> import qualified Data.ByteString as BS
 --   >>> import qualified Data.ByteString.Base16 as B16
@@ -82,22 +83,23 @@ keystream
   -> BS.ByteString  -- ^ 256-bit key
   -> Word32         -- ^ 32-bit counter
   -> BS.ByteString  -- ^ 96-bit nonce
-  -> Word64         -- ^ number of bytes
+  -> Int            -- ^ number of bytes
   -> Either Error BS.ByteString -- ^ keystream
 keystream r key@(BI.PS kfp koff kl) counter nonce@(BI.PS nfp noff nl) len
-  | kl /= 32   = Left InvalidKey
-  | nl /= 12   = Left InvalidNonce
-  | len > room = Left CounterOverflow
+  | kl /= 32      = Left InvalidKey
+  | nl /= 12      = Left InvalidNonce
+  | len <= 0      = Right BS.empty
+  | fi len > room = Left CounterOverflow
   | Native.chacha20_native_available =
-      Right $ BI.unsafeCreate (fi len) $ \dst ->
+      Right $ BI.unsafeCreate len $ \dst ->
         withForeignPtr kfp $ \kp ->
         withForeignPtr nfp $ \np ->
           Native.keystream_into (drounds r) (kp `plusPtr` koff) counter
-            (np `plusPtr` noff) dst (fi len)
+            (np `plusPtr` noff) dst len
   | otherwise = Right $ runST $
       ChaCha20._cipher_rounds (drounds r)
         (ChaCha20._parse_key key) counter (ChaCha20._parse_nonce nonce)
-        (BS.replicate (fi len) 0)
+        (BS.replicate len 0)
   where
     !room = (0x100000000 - fi counter) * 64 :: Word64
 

@@ -256,6 +256,10 @@ keystream_errors = H.testCase "keystream errors" $ do
       (Reduced.keystream Reduced.ChaCha8 key (maxBound - 1) non 128)
   H.assertEqual "overflow" (Left ChaCha.CounterOverflow)
     (Reduced.keystream Reduced.ChaCha8 key (maxBound - 1) non 129)
+  H.assertEqual "zero length" (Right mempty)
+    (Reduced.keystream Reduced.ChaCha8 key 0 non 0)
+  H.assertEqual "negative length" (Right mempty)
+    (Reduced.keystream Reduced.ChaCha8 key 0 non (-1))
 
 -- the dispatching 'keystream' agrees with the pure Haskell
 -- implementation for every round count and every length from 0 to
@@ -265,8 +269,7 @@ keystream_dispatch = H.testCase "keystream (dispatch vs pure)" $
   for_ rounds $ \(r, d) ->
   for_ [1, maxBound - 9] $ \con ->
   for_ [0..640] $ \l -> do
-    let Right out = Reduced.keystream r block_key con block_non
-                      (fromIntegral l)
+    let Right out = Reduced.keystream r block_key con block_non l
         ref = runST $
           ChaCha._cipher_rounds d (ChaCha._parse_key block_key) con
             (ChaCha._parse_nonce block_non) (BS.replicate l 0)
