@@ -24,14 +24,15 @@ static const uint32_t chacha_constants[4] = {
  * state registers, after it returns.  Each exported entry point thus
  * runs its kernel in a frame of its own and then overwrites the stack
  * region below it with zeros, so that no key material remains there.
- * BURN_BYTES must exceed the deepest kernel frame: about 560 bytes on
- * aarch64, and about 2 KiB on x86_64, where the SSE2 interleaved
- * kernel calls the AVX2 one (as compiled at -O2 by clang 21).
+ * BURN_BYTES must exceed the deepest kernel frame, with room for other
+ * compilers and flags.  At -O2, that is about 600 bytes on aarch64
+ * (clang 21, gcc 16), and on x86_64, where the SSE2 interleaved kernel
+ * calls the AVX2 one, about 2 KiB (clang 21) or 3.2 KiB (gcc 14).
  */
 #if defined(__aarch64__)
 #define BURN_BYTES 2048
 #else
-#define BURN_BYTES 4096
+#define BURN_BYTES 8192
 #endif
 
 __attribute__((noinline))
