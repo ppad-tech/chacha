@@ -5,7 +5,8 @@
 [![](https://img.shields.io/badge/haddock-chacha-lightblue)](https://docs.ppad.tech/chacha)
 
 A fast Haskell implementation of the ChaCha20 stream cipher as specified
-by [RFC8439][8439].
+by [RFC8439][8439], along with reduced-round (ChaCha8 and ChaCha12)
+keystreams.
 
 ## Usage
 
@@ -58,8 +59,10 @@ This library aims at the maximum security achievable in a
 garbage-collected language under an optimizing compiler such as GHC, in
 which strict constant-timeness can be [challenging to achieve][const].
 
-The ChaCha20 cipher within passes all test vectors from RFC8439,
-and the downstream AEAD-ChaCha20-Poly1305 implementation in
+The ChaCha20 cipher within passes all test vectors from RFC8439, the
+keystreams pass the 256-bit key vectors from
+[draft-strombergson-chacha-test-vectors-01][strom], and the
+downstream AEAD-ChaCha20-Poly1305 implementation in
 [ppad-aead](https://github.com/ppad-tech/aead) passes all the [Project
 Wycheproof vectors][wyche].
 
@@ -89,3 +92,4 @@ to get a REPL for the main library.
 [hadoc]: https://docs.ppad.tech/chacha
 [const]: https://www.chosenplaintext.ca/articles/beginners-guide-constant-time-cryptography.html
 [wyche]: https://github.com/C2SP/wycheproof
+[strom]: https://datatracker.ietf.org/doc/html/draft-strombergson-chacha-test-vectors-01
