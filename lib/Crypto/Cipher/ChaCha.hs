@@ -106,7 +106,8 @@ keystream r key@(BI.PS kfp koff kl) counter nonce@(BI.PS nfp noff nl) len
 --
 --   Unchecked: the key and nonce pointers must address 32 and 12
 --   bytes respectively, the destination must have room for the given
---   number of bytes, and the counter must leave room for them.
+--   number of bytes and must not overlap the key or nonce, and the
+--   counter must leave room for the bytes.
 _keystream_into
   :: Rounds    -- ^ number of rounds
   -> Ptr Word8 -- ^ 256-bit key

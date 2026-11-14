@@ -89,8 +89,8 @@ cipher drounds (BI.PS kfp koff _) counter (BI.PS nfp noff _)
 
 -- | Write 'len' bytes of keystream, using the given number of double
 --   rounds, for the 32-byte key and 12-byte nonce at the given
---   pointers, to the destination. The counter must leave room for
---   'len' bytes.
+--   pointers, to the destination, which must not overlap them. The
+--   counter must leave room for 'len' bytes.
 keystream_into
   :: Int -> Ptr Word8 -> Word32 -> Ptr Word8 -> Ptr Word8 -> Int
   -> IO ()
