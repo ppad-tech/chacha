@@ -3,6 +3,8 @@
 - 0.3.4 (UNRELEASED)
   * The native kernels zero the stack region they use before
     returning, so that no copies of the key remain there.
+  * On aarch64, 'cipher' and 'keystream' process inputs of 256 bytes
+    or more four blocks at a time, roughly twice as fast as before.
 
 - 0.3.3 (2026-11-14)
   * Adds four-block kernels producing interleaved keystream blocks,
