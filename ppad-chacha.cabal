@@ -35,7 +35,8 @@ library
   if flag(llvm)
     ghc-options: -fllvm -O2
   exposed-modules:
-      Crypto.Cipher.ChaCha20
+      Crypto.Cipher.ChaCha
+    , Crypto.Cipher.ChaCha20
   other-modules:
       Crypto.Cipher.ChaCha20.Native
   build-depends:
