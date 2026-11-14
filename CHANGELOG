@@ -1,6 +1,6 @@
 # Changelog
 
-- 0.3.3 (UNRELEASED)
+- 0.3.3 (2026-11-14)
   * Adds four-block kernels producing interleaved keystream blocks,
     as used by ChaCha8Rand, and roughly twice as fast as the
     single-block kernels.
