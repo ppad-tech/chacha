@@ -357,7 +357,7 @@ foreign import ccall unsafe "chacha_test_remnant"
 -- kernels the check is vacuous
 stack_scrub :: TestTree
 stack_scrub = H.testCase "native kernels scrub the stack" $
-  for_ [0 .. 4] $ \which ->
+  for_ [0 .. 6] $ \which ->
   for_ [4, 6, 10] $ \drounds -> do
     r <- c_test_remnant which drounds
     H.assertEqual (show (kernel which, drounds)) 0 r
@@ -365,7 +365,9 @@ stack_scrub = H.testCase "native kernels scrub the stack" $
     kernel :: CInt -> String
     kernel w = case w of
       0 -> "block"
-      1 -> "short cipher"
-      2 -> "long cipher"
-      3 -> "one interleaved group"
+      1 -> "cipher (100B)"
+      2 -> "cipher (300B)"
+      3 -> "cipher (1024B)"
+      4 -> "one interleaved group"
+      5 -> "three interleaved groups"
       _ -> "four interleaved groups"

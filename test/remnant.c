@@ -61,9 +61,13 @@ static void call_kernel(int which, int drounds) {
     case 0: chacha20_block_native(key, 1, nonce, buf, drounds); break;
     case 1: chacha20_cipher_native(key, 1, nonce, buf, buf, 100,
                                    drounds); break;
-    case 2: chacha20_cipher_native(key, 1, nonce, buf, buf, 1024,
+    case 2: chacha20_cipher_native(key, 1, nonce, buf, buf, 300,
                                    drounds); break;
-    case 3: chacha20_interleaved_native(key, 0, nonce, buf, 1, drounds,
+    case 3: chacha20_cipher_native(key, 1, nonce, buf, buf, 1024,
+                                   drounds); break;
+    case 4: chacha20_interleaved_native(key, 0, nonce, buf, 1, drounds,
+                                        1); break;
+    case 5: chacha20_interleaved_native(key, 0, nonce, buf, 3, drounds,
                                         1); break;
     default: chacha20_interleaved_native(key, 0, nonce, buf, 4,
                                          drounds, 1); break;
@@ -71,9 +75,9 @@ static void call_kernel(int which, int drounds) {
 }
 
 /*
- * Call the given kernel (0: block, 1: short cipher, 2: long cipher,
- * 3: one interleaved group, 4: four interleaved groups) with a known
- * key, and report whether any of the key remains on the stack
+ * Call the given kernel (0: block; 1, 2, 3: cipher of 100, 300, and
+ * 1024 bytes; 4, 5, 6: one, three, and four interleaved groups) with a
+ * known key, and report whether any of the key remains on the stack
  * afterwards.  call_kernel and scan_below are called from the same
  * frame, so the scanned region covers the kernel's.
  */

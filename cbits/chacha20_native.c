@@ -25,17 +25,17 @@ static const uint32_t chacha_constants[4] = {
  * runs its kernel in a frame of its own and then overwrites the stack
  * region below it with zeros, so that no key material remains there.
  *
- * The region must exceed the kernel's frame, with room for other
- * compilers and flags.  At -O2 (clang 21, gcc 14 and 16), the block
- * and cipher kernels' frames are at most about 400 bytes; the
- * interleaved kernels' are about 600 bytes on aarch64 and, on x86_64,
- * where the SSE2 kernel calls the AVX2 one, up to about 3.2 KiB.
+ * The region must exceed the kernels' frames, including any they call,
+ * with room for other compilers and flags.  At -O2 (clang 21, gcc 14
+ * and 16), the single- and two-block kernels' frames are at most
+ * about 400 bytes, and the four- and eight-block kernels' at most
+ * about 700 bytes on aarch64 and 2.2 KiB on x86_64.
  */
 #define BURN_SMALL 1024
 #if defined(__aarch64__)
 #define BURN_LARGE 2048
 #else
-#define BURN_LARGE 8192
+#define BURN_LARGE 4096
 #endif
 
 /* zero 'n' bytes, in a way the compiler may not elide */
@@ -128,6 +128,42 @@ static inline void chacha20_core(uint32x4_t *v0, uint32x4_t *v1,
     *v3 = vaddq_u32(d, s3);
 }
 
+/*
+ * ChaCha NEON kernel using inter-block parallelism: four consecutive
+ * blocks at once, with register x[i] holding word i of each block.  A
+ * quarter-round is then one set of element-wise operations on four
+ * registers, with no lane rotation, and the four quarter-rounds of
+ * each half-round are independent chains.  The registers, stored in
+ * order, give the blocks interleaved word by word.
+ */
+static inline __attribute__((always_inline))
+void chacha20_core4v(uint32x4_t x[16], int drounds) {
+    for (int i = 0; i < drounds; i++) {
+        QUARTER(x[0], x[4], x[ 8], x[12]);
+        QUARTER(x[1], x[5], x[ 9], x[13]);
+        QUARTER(x[2], x[6], x[10], x[14]);
+        QUARTER(x[3], x[7], x[11], x[15]);
+        QUARTER(x[0], x[5], x[10], x[15]);
+        QUARTER(x[1], x[6], x[11], x[12]);
+        QUARTER(x[2], x[7], x[ 8], x[13]);
+        QUARTER(x[3], x[4], x[ 9], x[14]);
+    }
+}
+
+/* Transpose four registers, each holding one word of four blocks,
+ * into four each holding four consecutive words of one block. */
+static inline void chacha20_transpose4(uint32x4_t *a, uint32x4_t *b,
+                                       uint32x4_t *c, uint32x4_t *d) {
+    uint64x2_t t0 = vreinterpretq_u64_u32(vtrn1q_u32(*a, *b));
+    uint64x2_t t1 = vreinterpretq_u64_u32(vtrn2q_u32(*a, *b));
+    uint64x2_t t2 = vreinterpretq_u64_u32(vtrn1q_u32(*c, *d));
+    uint64x2_t t3 = vreinterpretq_u64_u32(vtrn2q_u32(*c, *d));
+    *a = vreinterpretq_u32_u64(vtrn1q_u64(t0, t2));
+    *b = vreinterpretq_u32_u64(vtrn1q_u64(t1, t3));
+    *c = vreinterpretq_u32_u64(vtrn2q_u64(t0, t2));
+    *d = vreinterpretq_u32_u64(vtrn2q_u64(t1, t3));
+}
+
 /* Set up the constant rows of the state from key + nonce.  s3
  * (counter + nonce) varies per block and is built inside the loop. */
 static inline void chacha20_setup(const uint8_t key[32],
@@ -165,6 +201,51 @@ void chacha20_block_kernel(const uint8_t key[32], uint32_t counter,
     vst1q_u8(out + 16, vreinterpretq_u8_u32(v1));
     vst1q_u8(out + 32, vreinterpretq_u8_u32(v2));
     vst1q_u8(out + 48, vreinterpretq_u8_u32(v3));
+}
+
+/*
+ * Encrypt/decrypt the longest prefix of 'in' that is a whole number of
+ * 256-byte groups of four blocks, via the four-block core, transposing
+ * each group's rows back into block order.  Returns the number of
+ * bytes processed.  'in' and 'out' may be the same buffer.
+ */
+static __attribute__((noinline))
+size_t chacha20_cipher4_kernel(const uint8_t key[32], uint32_t counter,
+                               const uint8_t nonce[12],
+                               const uint8_t *in, uint8_t *out,
+                               size_t inlen, int drounds) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+    uint32x4_t s[16];
+    for (int i = 0; i < 4; i++) s[i] = vdupq_n_u32(chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i] = vdupq_n_u32(k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = vdupq_n_u32(n[i]);
+    static const uint32_t lanes[4] = { 0, 1, 2, 3 };
+    const uint32x4_t inc = vld1q_u32(lanes);
+
+    size_t pos = 0;
+    while (pos + 256 <= inlen) {
+        s[12] = vaddq_u32(vdupq_n_u32(counter), inc);
+        uint32x4_t x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core4v(x, drounds);
+        for (int i = 0; i < 16; i++) x[i] = vaddq_u32(x[i], s[i]);
+
+        for (int r = 0; r < 4; r++) {
+            chacha20_transpose4(&x[4 * r], &x[4 * r + 1],
+                                &x[4 * r + 2], &x[4 * r + 3]);
+            for (int j = 0; j < 4; j++) {
+                size_t o = pos + 64 * j + 16 * r;
+                vst1q_u8(out + o,
+                         veorq_u8(vld1q_u8(in + o),
+                                  vreinterpretq_u8_u32(x[4 * r + j])));
+            }
+        }
+        pos += 256;
+        counter += 4;
+    }
+    return pos;
 }
 
 /*
@@ -228,27 +309,6 @@ void chacha20_cipher_kernel(const uint8_t key[32], uint32_t counter,
 }
 
 /*
- * ChaCha NEON kernel using inter-block parallelism: four consecutive
- * blocks at once, with register x[i] holding word i of each block.  A
- * quarter-round is then one set of element-wise operations on four
- * registers, with no lane rotation, and the four quarter-rounds of
- * each half-round are independent chains.  The registers, stored in
- * order, give the blocks interleaved word by word.
- */
-static inline void chacha20_core4v(uint32x4_t x[16], int drounds) {
-    for (int i = 0; i < drounds; i++) {
-        QUARTER(x[0], x[4], x[ 8], x[12]);
-        QUARTER(x[1], x[5], x[ 9], x[13]);
-        QUARTER(x[2], x[6], x[10], x[14]);
-        QUARTER(x[3], x[7], x[11], x[15]);
-        QUARTER(x[0], x[5], x[10], x[15]);
-        QUARTER(x[1], x[6], x[11], x[12]);
-        QUARTER(x[2], x[7], x[ 8], x[13]);
-        QUARTER(x[3], x[4], x[ 9], x[14]);
-    }
-}
-
-/*
  * Write 'ngroups' groups of four consecutive keystream blocks to
  * 'out', 256 bytes per group, using 'drounds' double rounds and
  * starting at block 'counter'.  Within a group the blocks are
@@ -303,8 +363,18 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t nonce[12],
                             const uint8_t *in, uint8_t *out,
                             size_t inlen, int drounds) {
-    chacha20_cipher_kernel(key, counter, nonce, in, out, inlen, drounds);
-    burn_stack_small();
+    /* groups of four blocks via the four-block kernel, whose frame is
+     * deeper, and the rest via the single-block kernel */
+    size_t done = 0;
+    if (inlen >= 256)
+        done = chacha20_cipher4_kernel(key, counter, nonce, in, out,
+                                       inlen, drounds);
+    chacha20_cipher_kernel(key, counter + (uint32_t)(done / 64), nonce,
+                           in + done, out + done, inlen - done, drounds);
+    if (done)
+        burn_stack_large();
+    else
+        burn_stack_small();
 }
 
 void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
@@ -709,7 +779,7 @@ void chacha20_cipher_kernel(const uint8_t key[32], uint32_t counter,
 
 /* ChaCha core over eight consecutive blocks, one state word per
  * register, as in the four-block SSE2 kernel on wider registers. */
-__attribute__((target("avx2")))
+__attribute__((target("avx2"), always_inline))
 static inline void chacha20_core8v_avx2(__m256i x[16], int drounds) {
     for (int i = 0; i < drounds; i++) {
         QUARTER_AVX2(x[0], x[4], x[ 8], x[12]);
@@ -729,7 +799,7 @@ static inline void chacha20_core8v_avx2(__m256i x[16], int drounds) {
  * register holds the first group's word, the high lane the second's.
  * Returns the number of groups written.
  */
-__attribute__((target("avx2")))
+__attribute__((target("avx2"), noinline))
 static size_t chacha20_interleaved_avx2(const uint8_t key[32],
                                         uint32_t counter,
                                         const uint8_t nonce[12],
@@ -772,7 +842,8 @@ static size_t chacha20_interleaved_avx2(const uint8_t key[32],
  * kernel of the same name: register x[i] holds word i of each of
  * four consecutive blocks.
  */
-static inline void chacha20_core4v(__m128i x[16], int drounds) {
+static inline __attribute__((always_inline))
+void chacha20_core4v(__m128i x[16], int drounds) {
     for (int i = 0; i < drounds; i++) {
         QUARTER(x[0], x[4], x[ 8], x[12]);
         QUARTER(x[1], x[5], x[ 9], x[13]);
@@ -803,16 +874,6 @@ void chacha20_interleaved_kernel(const uint8_t key[32], uint32_t counter,
     uint32_t k[8], n[3];
     memcpy(k, key, 32);
     memcpy(n, nonce, 12);
-
-    /* pairs of groups via AVX2 where available, the rest via SSE2 */
-    if (ngroups >= 2 && have_avx2()) {
-        size_t done = chacha20_interleaved_avx2(key, counter, nonce, out,
-                                                ngroups, drounds,
-                                                key_ff_only);
-        counter += (uint32_t)(4 * done);
-        out     += 256 * done;
-        ngroups -= done;
-    }
 
     __m128i s[16];
     for (int i = 0; i < 4; i++)
@@ -858,7 +919,14 @@ void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
                                  const uint8_t nonce[12], uint8_t *out,
                                  size_t ngroups, int drounds,
                                  int key_ff_only) {
-    chacha20_interleaved_kernel(key, counter, nonce, out, ngroups,
+    /* pairs of groups via AVX2 where available, the rest via SSE2, each
+     * kernel called from here so that their frames don't stack */
+    size_t done = 0;
+    if (ngroups >= 2 && have_avx2())
+        done = chacha20_interleaved_avx2(key, counter, nonce, out,
+                                         ngroups, drounds, key_ff_only);
+    chacha20_interleaved_kernel(key, counter + (uint32_t)(4 * done),
+                                nonce, out + 256 * done, ngroups - done,
                                 drounds, key_ff_only);
     burn_stack_large();
 }
