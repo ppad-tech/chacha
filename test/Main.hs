@@ -17,11 +17,11 @@ import qualified Data.ByteString.Unsafe as BU
 import Data.Foldable (for_)
 import Data.Maybe (fromJust)
 import qualified Data.Primitive.PrimArray as PA
-import Data.Word (Word32)
-import Foreign.Ptr (castPtr)
+import Data.Word (Word8, Word32)
+import Foreign.Ptr (Ptr, castPtr)
 import Test.Tasty
 import qualified Test.Tasty.HUnit as H
-import Vectors (V(..), vectors)
+import Vectors (V(..), vectors, chacha8rand_seed, chacha8rand_iteration)
 
 main :: IO ()
 main = defaultMain $ testGroup "ppad-chacha" [
@@ -41,6 +41,11 @@ main = defaultMain $ testGroup "ppad-chacha" [
       , keystream_errors
       , keystream_dispatch
       , keystream_into
+      ]
+  , testGroup "interleaved" [
+        interleaved_chacha8rand
+      , interleaved_layout
+      , interleaved_dispatch
       ]
   ]
 
@@ -287,3 +292,55 @@ keystream_into = H.testCase "_keystream_into" $
       BU.unsafeUseAsCString block_non $ \np ->
         Reduced._keystream_into r (castPtr kp) 7 (castPtr np) dst 1000
     H.assertEqual (show r) ref out
+
+-- interleaved
+
+type Interleave =
+     Reduced.Rounds -> Reduced.FeedForward -> Ptr Word8 -> Word32
+  -> Ptr Word8 -> Ptr Word8 -> Int -> IO ()
+
+interleave
+  :: Interleave -> Reduced.Rounds -> Reduced.FeedForward -> BS.ByteString
+  -> Word32 -> BS.ByteString -> Int -> IO BS.ByteString
+interleave f r ff key con non groups =
+  BI.create (256 * groups) $ \dst ->
+    BU.unsafeUseAsCString key $ \kp ->
+    BU.unsafeUseAsCString non $ \np ->
+      f r ff (castPtr kp) con (castPtr np) dst groups
+
+-- ChaCha8Rand's iteration is sixteen ChaCha8 blocks, interleaved, with
+-- the key-only final addition; its first 992 bytes are output
+interleaved_chacha8rand :: TestTree
+interleaved_chacha8rand = H.testCase "ChaCha8Rand iteration" $ do
+  out <- interleave Reduced._interleaved_into Reduced.ChaCha8
+           Reduced.FeedForwardKey chacha8rand_seed 0 (BS.replicate 12 0) 4
+  H.assertEqual mempty (hex chacha8rand_iteration) (BS.take 992 out)
+
+-- with the full final addition, the output is the standard keystream
+-- with each group of four blocks transposed
+interleaved_layout :: TestTree
+interleaved_layout = H.testCase "layout (vs keystream)" $
+  for_ [Reduced.ChaCha8, Reduced.ChaCha12, Reduced.ChaCha20] $ \r -> do
+    let Right ks = Reduced.keystream r block_key 7 block_non (256 * 3)
+        word b i = BS.take 4 (BS.drop (64 * b + 4 * i) ks)
+        ex = BS.concat [ word (4 * g + j) i
+                       | g <- [0 .. 2], i <- [0 .. 15], j <- [0 .. 3] ]
+    out <- interleave Reduced._interleaved_into r Reduced.FeedForwardAll
+             block_key 7 block_non 3
+    H.assertEqual (show r) ex out
+
+-- the dispatching '_interleaved_into' agrees with the pure Haskell
+-- implementation; the second counter puts the final block of six
+-- groups at the maximum counter value
+interleaved_dispatch :: TestTree
+interleaved_dispatch = H.testCase "dispatch vs pure" $
+  for_ [Reduced.ChaCha8, Reduced.ChaCha12, Reduced.ChaCha20] $ \r ->
+  for_ [Reduced.FeedForwardAll, Reduced.FeedForwardKey] $ \ff ->
+  for_ [block_key, BS.replicate 32 0xff] $ \key ->
+  for_ [1, maxBound - 23] $ \con ->
+  for_ [1 .. 6] $ \groups -> do
+    out <- interleave Reduced._interleaved_into r ff key con block_non
+             groups
+    ref <- interleave Reduced._interleaved_pure_into r ff key con
+             block_non groups
+    H.assertEqual (show (r, ff, con, groups)) ref out
