@@ -18,6 +18,7 @@ import Data.Foldable (for_)
 import Data.Maybe (fromJust)
 import qualified Data.Primitive.PrimArray as PA
 import Data.Word (Word8, Word32)
+import Foreign.C.Types (CInt(..))
 import Foreign.Ptr (Ptr, castPtr)
 import Test.Tasty
 import qualified Test.Tasty.HUnit as H
@@ -47,6 +48,7 @@ main = defaultMain $ testGroup "ppad-chacha" [
       , interleaved_layout
       , interleaved_dispatch
       ]
+  , stack_scrub
   ]
 
 quarter :: TestTree
@@ -344,3 +346,26 @@ interleaved_dispatch = H.testCase "dispatch vs pure" $
     ref <- interleave Reduced._interleaved_pure_into r ff key con
              block_non groups
     H.assertEqual (show (r, ff, con, groups)) ref out
+
+-- stack scrubbing
+
+foreign import ccall unsafe "chacha_test_remnant"
+  c_test_remnant :: CInt -> CInt -> IO CInt
+
+-- no native kernel leaves its key in the stack region it used, for
+-- each round count (see test/remnant.c); on platforms without native
+-- kernels the check is vacuous
+stack_scrub :: TestTree
+stack_scrub = H.testCase "native kernels scrub the stack" $
+  for_ [0 .. 4] $ \which ->
+  for_ [4, 6, 10] $ \drounds -> do
+    r <- c_test_remnant which drounds
+    H.assertEqual (show (kernel which, drounds)) 0 r
+  where
+    kernel :: CInt -> String
+    kernel w = case w of
+      0 -> "block"
+      1 -> "short cipher"
+      2 -> "long cipher"
+      3 -> "one interleaved group"
+      _ -> "four interleaved groups"
