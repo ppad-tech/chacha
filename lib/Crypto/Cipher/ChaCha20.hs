@@ -28,6 +28,7 @@ module Crypto.Cipher.ChaCha20 (
   , ChaCha(..)
   , _chacha
   , _cipher
+  , _cipher_rounds
   , _parse_key
   , _parse_nonce
   , _quarter
@@ -257,15 +258,17 @@ _rounds state = do
   _quarter state 03 04 09 14
 {-# INLINEABLE _rounds #-}
 
+-- block function with the given number of double rounds
 _block
   :: PrimMonad m
-  => ChaCha (PrimState m)
+  => Int
+  -> ChaCha (PrimState m)
   -> Word32
   -> m BS.ByteString
-_block state@(ChaCha s) counter = do
+_block drounds state@(ChaCha s) counter = do
   _chacha_counter state counter
   i <- PA.freezePrimArray s 0 16
-  for_ [1..10 :: Int] (const (_rounds state))
+  for_ [1..drounds] (const (_rounds state))
   for_ [0..15 :: Int] $ \idx -> do
     let iv = PA.indexPrimArray i idx
     sv <- PA.readPrimArray s idx
@@ -294,7 +297,7 @@ block key@(BI.PS _ _ kl) counter nonce@(BI.PS _ _ nl)
   | kl /= 32 = Left InvalidKey
   | nl /= 12 = Left InvalidNonce
   | Native.chacha20_native_available =
-      Right (Native.block key counter nonce)
+      Right (Native.block 10 key counter nonce)
   | otherwise = pure $ runST $ do
       let k = _parse_key key
           n = _parse_nonce nonce
@@ -355,7 +358,7 @@ cipher
     | nl /= 12  = Left InvalidNonce
     | pl > room = Left CounterOverflow
     | Native.chacha20_native_available =
-        Right (Native.cipher raw_key counter raw_nonce plaintext)
+        Right (Native.cipher 10 raw_key counter raw_nonce plaintext)
     | otherwise = pure $ runST $ do
         let key = _parse_key raw_key
             non = _parse_nonce raw_nonce
@@ -370,7 +373,19 @@ _cipher
   -> Nonce
   -> BS.ByteString
   -> m BS.ByteString
-_cipher key counter nonce plaintext = do
+_cipher = _cipher_rounds 10
+{-# INLINE _cipher #-}
+
+-- stream cipher with the given number of double rounds
+_cipher_rounds
+  :: PrimMonad m
+  => Int
+  -> Key
+  -> Word32
+  -> Nonce
+  -> BS.ByteString
+  -> m BS.ByteString
+_cipher_rounds drounds key counter nonce plaintext = do
   ChaCha initial <- _chacha key counter nonce
   state@(ChaCha s) <- _chacha_alloc
 
@@ -380,10 +395,10 @@ _cipher key counter nonce plaintext = do
               BS.toStrict (BSB.toLazyByteString acc)
           | otherwise -> do
               PA.copyMutablePrimArray s 0 initial 0 16
-              stream <- _block state j
+              stream <- _block drounds state j
               let cip = BS.packZipWith (.^.) chunk stream
               loop (acc <> BSB.byteString cip) (j + 1) etc
 
   loop mempty counter plaintext
-{-# INLINE _cipher #-}
+{-# INLINE _cipher_rounds #-}
 
