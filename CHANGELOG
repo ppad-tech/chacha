@@ -1,6 +1,6 @@
 # Changelog
 
-- 0.3.2 (UNRELEASED)
+- 0.3.2 (2026-11-14)
   * Adds Crypto.Cipher.ChaCha, with ChaCha keystreams of 8, 12, or 20
     rounds.
 
