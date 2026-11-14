@@ -1,6 +1,6 @@
 # Changelog
 
-- 0.3.4 (UNRELEASED)
+- 0.3.4 (2026-11-14)
   * The native kernels zero the stack region they use before
     returning, so that no copies of the key remain there.
   * On aarch64, 'cipher' and 'keystream' process inputs of 256 bytes
