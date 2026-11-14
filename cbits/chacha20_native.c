@@ -136,7 +136,8 @@ static inline void chacha20_core(uint32x4_t *v0, uint32x4_t *v1,
  * each half-round are independent chains.  The registers, stored in
  * order, give the blocks interleaved word by word.
  */
-static inline void chacha20_core4v(uint32x4_t x[16], int drounds) {
+static inline __attribute__((always_inline))
+void chacha20_core4v(uint32x4_t x[16], int drounds) {
     for (int i = 0; i < drounds; i++) {
         QUARTER(x[0], x[4], x[ 8], x[12]);
         QUARTER(x[1], x[5], x[ 9], x[13]);
@@ -778,7 +779,7 @@ void chacha20_cipher_kernel(const uint8_t key[32], uint32_t counter,
 
 /* ChaCha core over eight consecutive blocks, one state word per
  * register, as in the four-block SSE2 kernel on wider registers. */
-__attribute__((target("avx2")))
+__attribute__((target("avx2"), always_inline))
 static inline void chacha20_core8v_avx2(__m256i x[16], int drounds) {
     for (int i = 0; i < drounds; i++) {
         QUARTER_AVX2(x[0], x[4], x[ 8], x[12]);
@@ -841,7 +842,8 @@ static size_t chacha20_interleaved_avx2(const uint8_t key[32],
  * kernel of the same name: register x[i] holds word i of each of
  * four consecutive blocks.
  */
-static inline void chacha20_core4v(__m128i x[16], int drounds) {
+static inline __attribute__((always_inline))
+void chacha20_core4v(__m128i x[16], int drounds) {
     for (int i = 0; i < drounds; i++) {
         QUARTER(x[0], x[4], x[ 8], x[12]);
         QUARTER(x[1], x[5], x[ 9], x[13]);
