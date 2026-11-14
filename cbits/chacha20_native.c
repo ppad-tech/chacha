@@ -24,23 +24,36 @@ static const uint32_t chacha_constants[4] = {
  * state registers, after it returns.  Each exported entry point thus
  * runs its kernel in a frame of its own and then overwrites the stack
  * region below it with zeros, so that no key material remains there.
- * BURN_BYTES must exceed the deepest kernel frame, with room for other
- * compilers and flags.  At -O2, that is about 600 bytes on aarch64
- * (clang 21, gcc 16), and on x86_64, where the SSE2 interleaved kernel
- * calls the AVX2 one, about 2 KiB (clang 21) or 3.2 KiB (gcc 14).
+ *
+ * The region must exceed the kernel's frame, with room for other
+ * compilers and flags.  At -O2 (clang 21, gcc 14 and 16), the block
+ * and cipher kernels' frames are at most about 400 bytes; the
+ * interleaved kernels' are about 600 bytes on aarch64 and, on x86_64,
+ * where the SSE2 kernel calls the AVX2 one, up to about 3.2 KiB.
  */
+#define BURN_SMALL 1024
 #if defined(__aarch64__)
-#define BURN_BYTES 2048
+#define BURN_LARGE 2048
 #else
-#define BURN_BYTES 8192
+#define BURN_LARGE 8192
 #endif
 
-__attribute__((noinline))
-static void burn_stack(void) {
-    uint8_t buf[BURN_BYTES];
-    memset(buf, 0, sizeof buf);
-    /* keep the otherwise dead stores */
+/* zero 'n' bytes, in a way the compiler may not elide */
+static inline void scrub(uint8_t *buf, size_t n) {
+    memset(buf, 0, n);
     __asm__ __volatile__("" : : "r"(buf) : "memory");
+}
+
+__attribute__((noinline))
+static void burn_stack_small(void) {
+    uint8_t buf[BURN_SMALL];
+    scrub(buf, sizeof buf);
+}
+
+__attribute__((noinline))
+static void burn_stack_large(void) {
+    uint8_t buf[BURN_LARGE];
+    scrub(buf, sizeof buf);
 }
 
 #endif
@@ -283,7 +296,7 @@ void chacha20_block_native(const uint8_t key[32], uint32_t counter,
                            const uint8_t nonce[12], uint8_t out[64],
                            int drounds) {
     chacha20_block_kernel(key, counter, nonce, out, drounds);
-    burn_stack();
+    burn_stack_small();
 }
 
 void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
@@ -291,7 +304,7 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t *in, uint8_t *out,
                             size_t inlen, int drounds) {
     chacha20_cipher_kernel(key, counter, nonce, in, out, inlen, drounds);
-    burn_stack();
+    burn_stack_small();
 }
 
 void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
@@ -300,7 +313,7 @@ void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
                                  int key_ff_only) {
     chacha20_interleaved_kernel(key, counter, nonce, out, ngroups,
                                 drounds, key_ff_only);
-    burn_stack();
+    burn_stack_large();
 }
 
 int chacha20_native_available(void) {
@@ -830,7 +843,7 @@ void chacha20_block_native(const uint8_t key[32], uint32_t counter,
                            const uint8_t nonce[12], uint8_t out[64],
                            int drounds) {
     chacha20_block_kernel(key, counter, nonce, out, drounds);
-    burn_stack();
+    burn_stack_small();
 }
 
 void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
@@ -838,7 +851,7 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t *in, uint8_t *out,
                             size_t inlen, int drounds) {
     chacha20_cipher_kernel(key, counter, nonce, in, out, inlen, drounds);
-    burn_stack();
+    burn_stack_small();
 }
 
 void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
@@ -847,7 +860,7 @@ void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
                                  int key_ff_only) {
     chacha20_interleaved_kernel(key, counter, nonce, out, ngroups,
                                 drounds, key_ff_only);
-    burn_stack();
+    burn_stack_large();
 }
 
 int chacha20_native_available(void) {
