@@ -7,6 +7,7 @@
 module Main where
 
 import Control.DeepSeq
+import qualified Crypto.Cipher.ChaCha as ChaCha
 import qualified Crypto.Cipher.ChaCha20 as ChaCha20
 import qualified Data.ByteString as BS
 import GHC.Generics
@@ -21,6 +22,7 @@ main :: IO ()
 main = mainWith $ do
   block
   cipher
+  keystream
 
 block :: Weigh ()
 block =
@@ -46,3 +48,13 @@ cipher =
           (ChaCha20.cipher key 1 non) bs2
         func "cipher (4096B input)"
           (ChaCha20.cipher key 1 non) bs3
+
+keystream :: Weigh ()
+keystream =
+  let !key = BS.replicate 32 0x88
+      !non = BS.replicate 12 0x00
+  in  wgroup "keystream" $ do
+        func "keystream (ChaCha8, 1024B)"
+          (ChaCha.keystream ChaCha.ChaCha8 key 1 non) 1024
+        func "keystream (ChaCha20, 1024B)"
+          (ChaCha.keystream ChaCha.ChaCha20 key 1 non) 1024

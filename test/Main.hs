@@ -2,20 +2,26 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Main where
 
 import Control.Monad.ST (runST)
+import qualified Crypto.Cipher.ChaCha as Reduced
 import qualified Crypto.Cipher.ChaCha20 as ChaCha
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Internal as BI
+import qualified Data.ByteString.Unsafe as BU
 import Data.Foldable (for_)
 import Data.Maybe (fromJust)
 import qualified Data.Primitive.PrimArray as PA
 import Data.Word (Word32)
+import Foreign.Ptr (castPtr)
 import Test.Tasty
 import qualified Test.Tasty.HUnit as H
+import Vectors (V(..), vectors)
 
 main :: IO ()
 main = defaultMain $ testGroup "ppad-chacha" [
@@ -30,6 +36,12 @@ main = defaultMain $ testGroup "ppad-chacha" [
   , counter_boundary
   , counter_overflow
   , dispatch
+  , testGroup "keystream" [
+        keystream_vectors
+      , keystream_errors
+      , keystream_dispatch
+      , keystream_into
+      ]
   ]
 
 quarter :: TestTree
@@ -211,3 +223,64 @@ dispatch = H.testCase "chacha20 encrypt (dispatch vs pure)" $
   where
     keys = [block_key, BS.replicate 32 0xff]
     plain = BS.pack [fromIntegral (i * 7 + 3) | i <- [0..639 :: Int]]
+
+-- keystream
+
+hex :: BS.ByteString -> BS.ByteString
+hex bs = case B16.decode bs of
+  Nothing -> error "ppad-chacha (test): invalid hex"
+  Just x  -> x
+
+-- the vectors place a 64-bit IV in the last two words of the state,
+-- which is the RFC 8439 layout with a zero first nonce word
+keystream_vectors :: TestTree
+keystream_vectors = testGroup "draft-strombergson vectors" $
+  fmap check vectors
+  where
+    check V {..} =
+      H.testCase (v_case <> " (" <> show v_rounds <> ")") $ do
+        let non = BS.replicate 4 0 <> hex v_iv
+            out = Reduced.keystream v_rounds (hex v_key) 0 non 128
+        H.assertEqual mempty (Right (hex v_keystream)) out
+
+keystream_errors :: TestTree
+keystream_errors = H.testCase "keystream errors" $ do
+  let key = BS.replicate 32 0
+      non = BS.replicate 12 0
+  H.assertEqual "key" (Left ChaCha.InvalidKey)
+    (Reduced.keystream Reduced.ChaCha8 (BS.take 31 key) 0 non 64)
+  H.assertEqual "nonce" (Left ChaCha.InvalidNonce)
+    (Reduced.keystream Reduced.ChaCha8 key 0 (BS.take 11 non) 64)
+  H.assertEqual "boundary" (Right 128) $
+    fmap BS.length
+      (Reduced.keystream Reduced.ChaCha8 key (maxBound - 1) non 128)
+  H.assertEqual "overflow" (Left ChaCha.CounterOverflow)
+    (Reduced.keystream Reduced.ChaCha8 key (maxBound - 1) non 129)
+
+-- the dispatching 'keystream' agrees with the pure Haskell
+-- implementation for every round count and every length from 0 to
+-- 640 bytes
+keystream_dispatch :: TestTree
+keystream_dispatch = H.testCase "keystream (dispatch vs pure)" $
+  for_ rounds $ \(r, d) ->
+  for_ [1, maxBound - 9] $ \con ->
+  for_ [0..640] $ \l -> do
+    let Right out = Reduced.keystream r block_key con block_non
+                      (fromIntegral l)
+        ref = runST $
+          ChaCha._cipher_rounds d (ChaCha._parse_key block_key) con
+            (ChaCha._parse_nonce block_non) (BS.replicate l 0)
+    H.assertEqual (show r <> ", length " <> show l) ref out
+  where
+    rounds = [(Reduced.ChaCha8, 4), (Reduced.ChaCha12, 6),
+              (Reduced.ChaCha20, 10)]
+
+keystream_into :: TestTree
+keystream_into = H.testCase "_keystream_into" $
+  for_ [Reduced.ChaCha8, Reduced.ChaCha12, Reduced.ChaCha20] $ \r -> do
+    let Right ref = Reduced.keystream r block_key 7 block_non 1000
+    out <- BI.create 1000 $ \dst ->
+      BU.unsafeUseAsCString block_key $ \kp ->
+      BU.unsafeUseAsCString block_non $ \np ->
+        Reduced._keystream_into r (castPtr kp) 7 (castPtr np) dst 1000
+    H.assertEqual (show r) ref out

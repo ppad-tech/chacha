@@ -65,13 +65,15 @@ static const uint32_t chacha_constants[4] = {
         v1 = veorq_u32(v1, v2); v1 = ROTL32_7(v1);        \
     } while (0)
 
-/* 20-round ChaCha20 core: 10 iterations of (column + diagonal). */
+/* ChaCha core: 'drounds' iterations of (column + diagonal), e.g.
+ * 10 for ChaCha20. */
 static inline void chacha20_core(uint32x4_t *v0, uint32x4_t *v1,
                                   uint32x4_t *v2, uint32x4_t *v3,
                                   uint32x4_t s0, uint32x4_t s1,
-                                  uint32x4_t s2, uint32x4_t s3) {
+                                  uint32x4_t s2, uint32x4_t s3,
+                                  int drounds) {
     uint32x4_t a = s0, b = s1, c = s2, d = s3;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < drounds; i++) {
         QUARTER(a, b, c, d);
         /* shift rows: row 1 left 1, row 2 left 2, row 3 left 3.    */
         b = vextq_u32(b, b, 1);
@@ -106,10 +108,12 @@ static inline void chacha20_setup(const uint8_t key[32],
 }
 
 /*
- * Generate one 64-byte ChaCha20 keystream block at 'out'.
+ * Generate one 64-byte keystream block at 'out', using 'drounds'
+ * double rounds (10 for ChaCha20).
  */
 void chacha20_block_native(const uint8_t key[32], uint32_t counter,
-                           const uint8_t nonce[12], uint8_t out[64]) {
+                           const uint8_t nonce[12], uint8_t out[64],
+                           int drounds) {
     uint32x4_t s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
@@ -117,7 +121,7 @@ void chacha20_block_native(const uint8_t key[32], uint32_t counter,
     uint32_t s3_in[4] = { counter, n0, n1, n2 };
     uint32x4_t s3 = vld1q_u32(s3_in);
     uint32x4_t v0, v1, v2, v3;
-    chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+    chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
     vst1q_u8(out + 0,  vreinterpretq_u8_u32(v0));
     vst1q_u8(out + 16, vreinterpretq_u8_u32(v1));
@@ -126,14 +130,15 @@ void chacha20_block_native(const uint8_t key[32], uint32_t counter,
 }
 
 /*
- * Encrypt/decrypt 'inlen' bytes at 'in' into 'out' using ChaCha20
- * with the given key, starting counter, and nonce.  Stream cipher,
- * so the same routine decrypts.
+ * Encrypt/decrypt 'inlen' bytes at 'in' into 'out' using ChaCha with
+ * 'drounds' double rounds (10 for ChaCha20) and the given key,
+ * starting counter, and nonce.  Stream cipher, so the same routine
+ * decrypts.  'in' and 'out' may be the same buffer.
  */
 void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t nonce[12],
                             const uint8_t *in, uint8_t *out,
-                            size_t inlen) {
+                            size_t inlen, int drounds) {
     uint32x4_t s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
@@ -143,7 +148,7 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
         uint32_t s3_in[4] = { counter, n0, n1, n2 };
         uint32x4_t s3 = vld1q_u32(s3_in);
         uint32x4_t v0, v1, v2, v3;
-        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
         uint8x16_t i0 = vld1q_u8(in + pos +  0);
         uint8x16_t i1 = vld1q_u8(in + pos + 16);
@@ -168,7 +173,7 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
         uint32_t s3_in[4] = { counter, n0, n1, n2 };
         uint32x4_t s3 = vld1q_u32(s3_in);
         uint32x4_t v0, v1, v2, v3;
-        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
         uint8_t block[64];
         vst1q_u8(block +  0, vreinterpretq_u8_u32(v0));
@@ -219,13 +224,15 @@ int chacha20_native_available(void) {
         v1 = _mm_xor_si128(v1, v2); v1 = ROTL32_N(v1, 7);        \
     } while (0)
 
-/* 20-round ChaCha20 core: 10 iterations of (column + diagonal). */
+/* ChaCha core: 'drounds' iterations of (column + diagonal), e.g.
+ * 10 for ChaCha20. */
 static inline void chacha20_core(__m128i *v0, __m128i *v1,
                                  __m128i *v2, __m128i *v3,
                                  __m128i s0, __m128i s1,
-                                 __m128i s2, __m128i s3) {
+                                 __m128i s2, __m128i s3,
+                                 int drounds) {
     __m128i a = s0, b = s1, c = s2, d = s3;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < drounds; i++) {
         QUARTER(a, b, c, d);
         /* shift rows: row 1 left 1, row 2 left 2, row 3 left 3.    */
         b = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 2, 1));
@@ -347,14 +354,15 @@ static inline __m256i rotl32_8_avx2(__m256i x) {
         v1 = _mm256_xor_si256(v1, v2); v1 = ROTL32_N_AVX2(v1, 7);   \
     } while (0)
 
-/* 20-round ChaCha20 core over two blocks. */
+/* ChaCha core over two blocks. */
 __attribute__((target("avx2")))
 static inline void chacha20_core_avx2(__m256i *v0, __m256i *v1,
                                       __m256i *v2, __m256i *v3,
                                       __m256i s0, __m256i s1,
-                                      __m256i s2, __m256i s3) {
+                                      __m256i s2, __m256i s3,
+                                      int drounds) {
     __m256i a = s0, b = s1, c = s2, d = s3;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < drounds; i++) {
         QUARTER_AVX2(a, b, c, d);
         b = _mm256_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 2, 1));
         c = _mm256_shuffle_epi32(c, _MM_SHUFFLE(1, 0, 3, 2));
@@ -370,13 +378,14 @@ static inline void chacha20_core_avx2(__m256i *v0, __m256i *v1,
     *v3 = _mm256_add_epi32(d, s3);
 }
 
-/* 20-round ChaCha20 core over four blocks, as two interleaved
+/* ChaCha core over four blocks, as two interleaved
  * pairs so that their independent dependency chains overlap.        */
 __attribute__((target("avx2")))
-static inline void chacha20_core4_avx2(__m256i v[8], const __m256i s[8]) {
+static inline void chacha20_core4_avx2(__m256i v[8], const __m256i s[8],
+                                       int drounds) {
     __m256i a = s[0], b = s[1], c = s[2], d = s[3];
     __m256i e = s[4], f = s[5], g = s[6], h = s[7];
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < drounds; i++) {
         QUARTER_AVX2(a, b, c, d);
         QUARTER_AVX2(e, f, g, h);
         b = _mm256_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 2, 1));
@@ -438,7 +447,7 @@ static size_t chacha20_cipher_avx2(const uint8_t key[32],
                                    uint32_t counter,
                                    const uint8_t nonce[12],
                                    const uint8_t *in, uint8_t *out,
-                                   size_t inlen) {
+                                   size_t inlen, int drounds) {
     __m256i s0 = _mm256_broadcastsi128_si256(
         _mm_loadu_si128((const __m128i *)chacha_constants));
     __m256i s1 = _mm256_broadcastsi128_si256(
@@ -462,7 +471,7 @@ static size_t chacha20_cipher_avx2(const uint8_t key[32],
                               (int)c3, (int)n0, (int)n1, (int)n2)
         };
         __m256i v[8];
-        chacha20_core4_avx2(v, s);
+        chacha20_core4_avx2(v, s, drounds);
         chacha20_xor2_avx2(in + pos, out + pos, v[0], v[1], v[2], v[3]);
         chacha20_xor2_avx2(in + pos + 128, out + pos + 128,
                            v[4], v[5], v[6], v[7]);
@@ -475,7 +484,7 @@ static size_t chacha20_cipher_avx2(const uint8_t key[32],
             (int)counter, (int)n0, (int)n1, (int)n2,
             (int)c1,      (int)n0, (int)n1, (int)n2);
         __m256i v0, v1, v2, v3;
-        chacha20_core_avx2(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+        chacha20_core_avx2(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
         chacha20_xor2_avx2(in + pos, out + pos, v0, v1, v2, v3);
         pos += 128;
         counter += 2;
@@ -484,17 +493,19 @@ static size_t chacha20_cipher_avx2(const uint8_t key[32],
 }
 
 /*
- * Generate one 64-byte ChaCha20 keystream block at 'out'.
+ * Generate one 64-byte keystream block at 'out', using 'drounds'
+ * double rounds (10 for ChaCha20).
  */
 void chacha20_block_native(const uint8_t key[32], uint32_t counter,
-                           const uint8_t nonce[12], uint8_t out[64]) {
+                           const uint8_t nonce[12], uint8_t out[64],
+                           int drounds) {
     __m128i s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
 
     __m128i s3 = chacha20_row3(counter, n0, n1, n2);
     __m128i v0, v1, v2, v3;
-    chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+    chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
     _mm_storeu_si128((__m128i *)(out +  0), v0);
     _mm_storeu_si128((__m128i *)(out + 16), v1);
@@ -503,14 +514,15 @@ void chacha20_block_native(const uint8_t key[32], uint32_t counter,
 }
 
 /*
- * Encrypt/decrypt 'inlen' bytes at 'in' into 'out' using ChaCha20
- * with the given key, starting counter, and nonce.  Stream cipher,
- * so the same routine decrypts.
+ * Encrypt/decrypt 'inlen' bytes at 'in' into 'out' using ChaCha with
+ * 'drounds' double rounds (10 for ChaCha20) and the given key,
+ * starting counter, and nonce.  Stream cipher, so the same routine
+ * decrypts.  'in' and 'out' may be the same buffer.
  */
 void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t nonce[12],
                             const uint8_t *in, uint8_t *out,
-                            size_t inlen) {
+                            size_t inlen, int drounds) {
     __m128i s0, s1, s2;
     uint32_t n0, n1, n2;
     chacha20_setup(key, nonce, &s0, &s1, &s2, &n0, &n1, &n2);
@@ -518,14 +530,15 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
     /* block pairs via AVX2 where available, the rest via SSE2 */
     size_t pos = 0;
     if (inlen >= 128 && have_avx2()) {
-        pos = chacha20_cipher_avx2(key, counter, nonce, in, out, inlen);
+        pos = chacha20_cipher_avx2(key, counter, nonce, in, out, inlen,
+                                   drounds);
         counter += (uint32_t)(pos / 64);
     }
 
     while (pos + 64 <= inlen) {
         __m128i s3 = chacha20_row3(counter, n0, n1, n2);
         __m128i v0, v1, v2, v3;
-        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
         __m128i i0 = _mm_loadu_si128((const __m128i *)(in + pos +  0));
         __m128i i1 = _mm_loadu_si128((const __m128i *)(in + pos + 16));
@@ -549,7 +562,7 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
     if (pos < inlen) {
         __m128i s3 = chacha20_row3(counter, n0, n1, n2);
         __m128i v0, v1, v2, v3;
-        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3);
+        chacha20_core(&v0, &v1, &v2, &v3, s0, s1, s2, s3, drounds);
 
         uint8_t block[64];
         _mm_storeu_si128((__m128i *)(block +  0), v0);
@@ -574,16 +587,17 @@ int chacha20_native_available(void) {
  * gated on 'chacha20_native_available' returning 0                 */
 
 void chacha20_block_native(const uint8_t *key, uint32_t counter,
-                           const uint8_t *nonce, uint8_t *out) {
-    (void)key; (void)counter; (void)nonce; (void)out;
+                           const uint8_t *nonce, uint8_t *out,
+                           int drounds) {
+    (void)key; (void)counter; (void)nonce; (void)out; (void)drounds;
 }
 
 void chacha20_cipher_native(const uint8_t *key, uint32_t counter,
                             const uint8_t *nonce,
                             const uint8_t *in, uint8_t *out,
-                            size_t inlen) {
+                            size_t inlen, int drounds) {
     (void)key; (void)counter; (void)nonce;
-    (void)in; (void)out; (void)inlen;
+    (void)in; (void)out; (void)inlen; (void)drounds;
 }
 
 int chacha20_native_available(void) {
