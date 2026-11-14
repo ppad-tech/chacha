@@ -14,6 +14,7 @@ module Crypto.Cipher.ChaCha20.Native (
   , block
   , cipher
   , keystream_into
+  , interleaved_into
   ) where
 
 import qualified Data.ByteString as BS
@@ -35,6 +36,11 @@ foreign import ccall unsafe "chacha20_cipher_native"
   c_chacha20_cipher
     :: Ptr Word8 -> Word32 -> Ptr Word8
     -> Ptr Word8 -> Ptr Word8 -> CSize -> CInt -> IO ()
+
+foreign import ccall unsafe "chacha20_interleaved_native"
+  c_chacha20_interleaved
+    :: Ptr Word8 -> Word32 -> Ptr Word8 -> Ptr Word8 -> CSize -> CInt
+    -> CInt -> IO ()
 
 foreign import ccall unsafe "chacha20_native_available"
   c_chacha20_native_available :: IO CInt
@@ -97,3 +103,16 @@ keystream_into
 keystream_into drounds kp counter np dst len = do
   fillBytes dst 0 len
   c_chacha20_cipher kp counter np dst dst (fi len) (fi drounds)
+
+-- | Write 'groups' groups of four keystream blocks, interleaved word
+--   by word, using the given number of double rounds, for the 32-byte
+--   key and 12-byte nonce at the given pointers, to the destination,
+--   which must not overlap them. If the flag is set, the final
+--   addition of the input state covers the key words only. The
+--   counter must leave room for four blocks per group.
+interleaved_into
+  :: Int -> Bool -> Ptr Word8 -> Word32 -> Ptr Word8 -> Ptr Word8 -> Int
+  -> IO ()
+interleaved_into drounds key_only kp counter np dst groups =
+  c_chacha20_interleaved kp counter np dst (fi groups) (fi drounds)
+    (if key_only then 1 else 0)

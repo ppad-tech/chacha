@@ -12,7 +12,10 @@ import qualified Crypto.Cipher.ChaCha as ChaCha
 import qualified Crypto.Cipher.ChaCha20 as ChaCha20
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Internal as BI
+import qualified Data.ByteString.Unsafe as BU
 import Data.Maybe (fromJust)
+import Foreign.Ptr (castPtr)
 import GHC.Generics
 
 deriving instance Generic ChaCha20.Error
@@ -23,6 +26,7 @@ main :: IO ()
 main = defaultMain [
     suite
   , keystream
+  , interleaved
   ]
 
 plain :: BS.ByteString
@@ -59,3 +63,15 @@ keystream =
   , bench "ChaCha20" $ nf (ChaCha.keystream ChaCha.ChaCha20 key 1 non) 1024
   ]
 
+
+interleaved :: Benchmark
+interleaved =
+  bgroup "ppad-chacha (interleaved, 1024B)" [
+    bench "ChaCha8" $ nfIO (inter ChaCha.ChaCha8 ChaCha.FeedForwardKey)
+  , bench "ChaCha20" $ nfIO (inter ChaCha.ChaCha20 ChaCha.FeedForwardAll)
+  ]
+  where
+    inter r ff = BI.create 1024 $ \dst ->
+      BU.unsafeUseAsCString key $ \kp ->
+      BU.unsafeUseAsCString non $ \np ->
+        ChaCha._interleaved_into r ff (castPtr kp) 1 (castPtr np) dst 4

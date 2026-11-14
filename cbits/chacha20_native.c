@@ -188,6 +188,68 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
     }
 }
 
+/*
+ * ChaCha NEON kernel using inter-block parallelism: four consecutive
+ * blocks at once, with register x[i] holding word i of each block.  A
+ * quarter-round is then one set of element-wise operations on four
+ * registers, with no lane rotation, and the four quarter-rounds of
+ * each half-round are independent chains.  The registers, stored in
+ * order, give the blocks interleaved word by word.
+ */
+static inline void chacha20_core4v(uint32x4_t x[16], int drounds) {
+    for (int i = 0; i < drounds; i++) {
+        QUARTER(x[0], x[4], x[ 8], x[12]);
+        QUARTER(x[1], x[5], x[ 9], x[13]);
+        QUARTER(x[2], x[6], x[10], x[14]);
+        QUARTER(x[3], x[7], x[11], x[15]);
+        QUARTER(x[0], x[5], x[10], x[15]);
+        QUARTER(x[1], x[6], x[11], x[12]);
+        QUARTER(x[2], x[7], x[ 8], x[13]);
+        QUARTER(x[3], x[4], x[ 9], x[14]);
+    }
+}
+
+/*
+ * Write 'ngroups' groups of four consecutive keystream blocks to
+ * 'out', 256 bytes per group, using 'drounds' double rounds and
+ * starting at block 'counter'.  Within a group the blocks are
+ * interleaved word by word: word i of block j is at byte offset
+ * 16 * i + 4 * j.  If 'key_ff_only' is nonzero, the final addition of
+ * the input state is applied to the key words only, omitting the
+ * public constant, counter, and nonce words, as in ChaCha8Rand.
+ * 'out' must not overlap 'key' or 'nonce'.
+ */
+void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
+                                 const uint8_t nonce[12], uint8_t *out,
+                                 size_t ngroups, int drounds,
+                                 int key_ff_only) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+
+    uint32x4_t s[16];
+    for (int i = 0; i < 4; i++) s[i]      = vdupq_n_u32(chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i]  = vdupq_n_u32(k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = vdupq_n_u32(n[i]);
+    static const uint32_t lanes[4] = { 0, 1, 2, 3 };
+    const uint32x4_t inc = vld1q_u32(lanes);
+
+    for (size_t g = 0; g < ngroups; g++) {
+        s[12] = vaddq_u32(vdupq_n_u32(counter), inc);
+        uint32x4_t x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core4v(x, drounds);
+
+        uint8_t *o = out + 256 * g;
+        for (int i = 0; i < 16; i++) {
+            int add = !key_ff_only || (i >= 4 && i < 12);
+            uint32x4_t v = add ? vaddq_u32(x[i], s[i]) : x[i];
+            vst1q_u8(o + 16 * i, vreinterpretq_u8_u32(v));
+        }
+        counter += 4;
+    }
+}
+
 int chacha20_native_available(void) {
     return 1;
 }
@@ -577,6 +639,135 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
     }
 }
 
+/* ChaCha core over eight consecutive blocks, one state word per
+ * register, as in the four-block SSE2 kernel on wider registers. */
+__attribute__((target("avx2")))
+static inline void chacha20_core8v_avx2(__m256i x[16], int drounds) {
+    for (int i = 0; i < drounds; i++) {
+        QUARTER_AVX2(x[0], x[4], x[ 8], x[12]);
+        QUARTER_AVX2(x[1], x[5], x[ 9], x[13]);
+        QUARTER_AVX2(x[2], x[6], x[10], x[14]);
+        QUARTER_AVX2(x[3], x[7], x[11], x[15]);
+        QUARTER_AVX2(x[0], x[5], x[10], x[15]);
+        QUARTER_AVX2(x[1], x[6], x[11], x[12]);
+        QUARTER_AVX2(x[2], x[7], x[ 8], x[13]);
+        QUARTER_AVX2(x[3], x[4], x[ 9], x[14]);
+    }
+}
+
+/*
+ * Write as many pairs of interleaved four-block groups as 'ngroups'
+ * allows, eight blocks per pass: the low 128-bit lane of each
+ * register holds the first group's word, the high lane the second's.
+ * Returns the number of groups written.
+ */
+__attribute__((target("avx2")))
+static size_t chacha20_interleaved_avx2(const uint8_t key[32],
+                                        uint32_t counter,
+                                        const uint8_t nonce[12],
+                                        uint8_t *out, size_t ngroups,
+                                        int drounds, int key_ff_only) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+
+    __m256i s[16];
+    for (int i = 0; i < 4; i++)
+        s[i] = _mm256_set1_epi32((int)chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i]  = _mm256_set1_epi32((int)k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = _mm256_set1_epi32((int)n[i]);
+    const __m256i inc = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+
+    size_t g = 0;
+    for (; g + 2 <= ngroups; g += 2) {
+        s[12] = _mm256_add_epi32(_mm256_set1_epi32((int)counter), inc);
+        __m256i x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core8v_avx2(x, drounds);
+
+        uint8_t *o = out + 256 * g;
+        for (int i = 0; i < 16; i++) {
+            int add = !key_ff_only || (i >= 4 && i < 12);
+            __m256i v = add ? _mm256_add_epi32(x[i], s[i]) : x[i];
+            _mm_storeu_si128((__m128i *)(o + 16 * i),
+                             _mm256_castsi256_si128(v));
+            _mm_storeu_si128((__m128i *)(o + 256 + 16 * i),
+                             _mm256_extracti128_si256(v, 1));
+        }
+        counter += 8;
+    }
+    return g;
+}
+
+/*
+ * ChaCha SSE2 kernel using inter-block parallelism, as in the NEON
+ * kernel of the same name: register x[i] holds word i of each of
+ * four consecutive blocks.
+ */
+static inline void chacha20_core4v(__m128i x[16], int drounds) {
+    for (int i = 0; i < drounds; i++) {
+        QUARTER(x[0], x[4], x[ 8], x[12]);
+        QUARTER(x[1], x[5], x[ 9], x[13]);
+        QUARTER(x[2], x[6], x[10], x[14]);
+        QUARTER(x[3], x[7], x[11], x[15]);
+        QUARTER(x[0], x[5], x[10], x[15]);
+        QUARTER(x[1], x[6], x[11], x[12]);
+        QUARTER(x[2], x[7], x[ 8], x[13]);
+        QUARTER(x[3], x[4], x[ 9], x[14]);
+    }
+}
+
+/*
+ * Write 'ngroups' groups of four consecutive keystream blocks to
+ * 'out', 256 bytes per group, using 'drounds' double rounds and
+ * starting at block 'counter'.  Within a group the blocks are
+ * interleaved word by word: word i of block j is at byte offset
+ * 16 * i + 4 * j.  If 'key_ff_only' is nonzero, the final addition of
+ * the input state is applied to the key words only, omitting the
+ * public constant, counter, and nonce words, as in ChaCha8Rand.
+ * 'out' must not overlap 'key' or 'nonce'.
+ */
+void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
+                                 const uint8_t nonce[12], uint8_t *out,
+                                 size_t ngroups, int drounds,
+                                 int key_ff_only) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+
+    /* pairs of groups via AVX2 where available, the rest via SSE2 */
+    if (ngroups >= 2 && have_avx2()) {
+        size_t done = chacha20_interleaved_avx2(key, counter, nonce, out,
+                                                ngroups, drounds,
+                                                key_ff_only);
+        counter += (uint32_t)(4 * done);
+        out     += 256 * done;
+        ngroups -= done;
+    }
+
+    __m128i s[16];
+    for (int i = 0; i < 4; i++)
+        s[i] = _mm_set1_epi32((int)chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i]  = _mm_set1_epi32((int)k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = _mm_set1_epi32((int)n[i]);
+    const __m128i inc = _mm_setr_epi32(0, 1, 2, 3);
+
+    for (size_t g = 0; g < ngroups; g++) {
+        s[12] = _mm_add_epi32(_mm_set1_epi32((int)counter), inc);
+        __m128i x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core4v(x, drounds);
+
+        uint8_t *o = out + 256 * g;
+        for (int i = 0; i < 16; i++) {
+            int add = !key_ff_only || (i >= 4 && i < 12);
+            __m128i v = add ? _mm_add_epi32(x[i], s[i]) : x[i];
+            _mm_storeu_si128((__m128i *)(o + 16 * i), v);
+        }
+        counter += 4;
+    }
+}
+
 int chacha20_native_available(void) {
     return 1;
 }
@@ -598,6 +789,14 @@ void chacha20_cipher_native(const uint8_t *key, uint32_t counter,
                             size_t inlen, int drounds) {
     (void)key; (void)counter; (void)nonce;
     (void)in; (void)out; (void)inlen; (void)drounds;
+}
+
+void chacha20_interleaved_native(const uint8_t *key, uint32_t counter,
+                                 const uint8_t *nonce, uint8_t *out,
+                                 size_t ngroups, int drounds,
+                                 int key_ff_only) {
+    (void)key; (void)counter; (void)nonce; (void)out;
+    (void)ngroups; (void)drounds; (void)key_ff_only;
 }
 
 int chacha20_native_available(void) {

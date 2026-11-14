@@ -61,7 +61,8 @@ which strict constant-timeness can be [challenging to achieve][const].
 
 The ChaCha20 cipher within passes all test vectors from RFC8439, the
 keystreams pass the 256-bit key vectors from
-[draft-strombergson-chacha-test-vectors-01][strom], and the
+[draft-strombergson-chacha-test-vectors-01][strom] and the sample
+output from the [ChaCha8Rand specification][c8rnd], and the
 downstream AEAD-ChaCha20-Poly1305 implementation in
 [ppad-aead](https://github.com/ppad-tech/aead) passes all the [Project
 Wycheproof vectors][wyche].
@@ -93,3 +94,4 @@ to get a REPL for the main library.
 [const]: https://www.chosenplaintext.ca/articles/beginners-guide-constant-time-cryptography.html
 [wyche]: https://github.com/C2SP/wycheproof
 [strom]: https://datatracker.ietf.org/doc/html/draft-strombergson-chacha-test-vectors-01
+[c8rnd]: https://c2sp.org/chacha8rand
