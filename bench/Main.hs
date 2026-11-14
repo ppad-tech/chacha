@@ -8,6 +8,7 @@ module Main where
 
 import Control.DeepSeq
 import Criterion.Main
+import qualified Crypto.Cipher.ChaCha as ChaCha
 import qualified Crypto.Cipher.ChaCha20 as ChaCha20
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
@@ -21,6 +22,7 @@ instance NFData ChaCha20.Error
 main :: IO ()
 main = defaultMain [
     suite
+  , keystream
   ]
 
 plain :: BS.ByteString
@@ -47,5 +49,13 @@ suite =
     bench "cipher" $ nf (ChaCha20.cipher key 1 non) plain
   , bench "cipher (1024B)" $ nf (ChaCha20.cipher key 1 non) plain_1k
   , bench "cipher (4096B)" $ nf (ChaCha20.cipher key 1 non) plain_4k
+  ]
+
+keystream :: Benchmark
+keystream =
+  bgroup "ppad-chacha (keystream, 1024B)" [
+    bench "ChaCha8" $ nf (ChaCha.keystream ChaCha.ChaCha8 key 1 non) 1024
+  , bench "ChaCha12" $ nf (ChaCha.keystream ChaCha.ChaCha12 key 1 non) 1024
+  , bench "ChaCha20" $ nf (ChaCha.keystream ChaCha.ChaCha20 key 1 non) 1024
   ]
 
