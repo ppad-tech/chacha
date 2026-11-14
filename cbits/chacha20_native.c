@@ -25,17 +25,17 @@ static const uint32_t chacha_constants[4] = {
  * runs its kernel in a frame of its own and then overwrites the stack
  * region below it with zeros, so that no key material remains there.
  *
- * The region must exceed the kernels' frames, with room for other
- * compilers and flags.  At -O2 (clang 21, gcc 14 and 16), the
- * single-block and two-block kernels' frames are at most about 400
- * bytes; the four- and eight-block kernels' are up to about 700 bytes
- * on aarch64 and, on x86_64, up to about 3.2 KiB.
+ * The region must exceed the kernels' frames, including any they call,
+ * with room for other compilers and flags.  At -O2 (clang 21, gcc 14
+ * and 16), the single- and two-block kernels' frames are at most
+ * about 400 bytes, and the four- and eight-block kernels' at most
+ * about 700 bytes on aarch64 and 2.2 KiB on x86_64.
  */
 #define BURN_SMALL 1024
 #if defined(__aarch64__)
 #define BURN_LARGE 2048
 #else
-#define BURN_LARGE 8192
+#define BURN_LARGE 4096
 #endif
 
 /* zero 'n' bytes, in a way the compiler may not elide */
@@ -798,7 +798,7 @@ static inline void chacha20_core8v_avx2(__m256i x[16], int drounds) {
  * register holds the first group's word, the high lane the second's.
  * Returns the number of groups written.
  */
-__attribute__((target("avx2")))
+__attribute__((target("avx2"), noinline))
 static size_t chacha20_interleaved_avx2(const uint8_t key[32],
                                         uint32_t counter,
                                         const uint8_t nonce[12],
@@ -854,6 +854,137 @@ static inline void chacha20_core4v(__m128i x[16], int drounds) {
     }
 }
 
+/* Transpose four registers, each holding one word of four blocks,
+ * into four each holding four consecutive words of one block. */
+static inline void chacha20_transpose4(__m128i *a, __m128i *b,
+                                       __m128i *c, __m128i *d) {
+    __m128i t0 = _mm_unpacklo_epi32(*a, *b);
+    __m128i t1 = _mm_unpacklo_epi32(*c, *d);
+    __m128i t2 = _mm_unpackhi_epi32(*a, *b);
+    __m128i t3 = _mm_unpackhi_epi32(*c, *d);
+    *a = _mm_unpacklo_epi64(t0, t1);
+    *b = _mm_unpackhi_epi64(t0, t1);
+    *c = _mm_unpacklo_epi64(t2, t3);
+    *d = _mm_unpackhi_epi64(t2, t3);
+}
+
+/*
+ * Encrypt/decrypt the longest prefix of 'in' that is a whole number of
+ * 256-byte groups of four blocks, via the four-block SSE2 core,
+ * transposing each group's rows back into block order.  Returns the
+ * number of bytes processed.  'in' and 'out' may be the same buffer.
+ */
+static __attribute__((noinline))
+size_t chacha20_cipher4_kernel(const uint8_t key[32], uint32_t counter,
+                               const uint8_t nonce[12],
+                               const uint8_t *in, uint8_t *out,
+                               size_t inlen, int drounds) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+    __m128i s[16];
+    for (int i = 0; i < 4; i++)
+        s[i] = _mm_set1_epi32((int)chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i]  = _mm_set1_epi32((int)k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = _mm_set1_epi32((int)n[i]);
+    const __m128i inc = _mm_setr_epi32(0, 1, 2, 3);
+
+    size_t pos = 0;
+    while (pos + 256 <= inlen) {
+        s[12] = _mm_add_epi32(_mm_set1_epi32((int)counter), inc);
+        __m128i x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core4v(x, drounds);
+        for (int i = 0; i < 16; i++) x[i] = _mm_add_epi32(x[i], s[i]);
+
+        for (int r = 0; r < 4; r++) {
+            chacha20_transpose4(&x[4 * r], &x[4 * r + 1],
+                                &x[4 * r + 2], &x[4 * r + 3]);
+            for (int j = 0; j < 4; j++) {
+                size_t o = pos + 64 * j + 16 * r;
+                __m128i v = _mm_loadu_si128((const __m128i *)(in + o));
+                _mm_storeu_si128((__m128i *)(out + o),
+                                 _mm_xor_si128(v, x[4 * r + j]));
+            }
+        }
+        pos += 256;
+        counter += 4;
+    }
+    return pos;
+}
+
+/* chacha20_transpose4 within each 128-bit lane */
+__attribute__((target("avx2")))
+static inline void chacha20_transpose4_avx2(__m256i *a, __m256i *b,
+                                            __m256i *c, __m256i *d) {
+    __m256i t0 = _mm256_unpacklo_epi32(*a, *b);
+    __m256i t1 = _mm256_unpacklo_epi32(*c, *d);
+    __m256i t2 = _mm256_unpackhi_epi32(*a, *b);
+    __m256i t3 = _mm256_unpackhi_epi32(*c, *d);
+    *a = _mm256_unpacklo_epi64(t0, t1);
+    *b = _mm256_unpackhi_epi64(t0, t1);
+    *c = _mm256_unpacklo_epi64(t2, t3);
+    *d = _mm256_unpackhi_epi64(t2, t3);
+}
+
+/*
+ * As chacha20_cipher4_kernel, eight blocks at a time via the
+ * eight-block AVX2 core, for groups of 512 bytes.  After transposing,
+ * register 4 * r + j holds words 4r to 4r + 3 of block j in its low
+ * lane and of block j + 4 in its high lane.
+ */
+__attribute__((target("avx2"), noinline))
+static size_t chacha20_cipher8_avx2(const uint8_t key[32],
+                                    uint32_t counter,
+                                    const uint8_t nonce[12],
+                                    const uint8_t *in, uint8_t *out,
+                                    size_t inlen, int drounds) {
+    uint32_t k[8], n[3];
+    memcpy(k, key, 32);
+    memcpy(n, nonce, 12);
+    __m256i s[16];
+    for (int i = 0; i < 4; i++)
+        s[i] = _mm256_set1_epi32((int)chacha_constants[i]);
+    for (int i = 0; i < 8; i++) s[4 + i]  = _mm256_set1_epi32((int)k[i]);
+    for (int i = 0; i < 3; i++) s[13 + i] = _mm256_set1_epi32((int)n[i]);
+    const __m256i inc = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+
+    size_t pos = 0;
+    while (pos + 512 <= inlen) {
+        s[12] = _mm256_add_epi32(_mm256_set1_epi32((int)counter), inc);
+        __m256i x[16];
+        for (int i = 0; i < 16; i++) x[i] = s[i];
+        chacha20_core8v_avx2(x, drounds);
+        for (int i = 0; i < 16; i++) x[i] = _mm256_add_epi32(x[i], s[i]);
+        for (int r = 0; r < 4; r++)
+            chacha20_transpose4_avx2(&x[4 * r], &x[4 * r + 1],
+                                     &x[4 * r + 2], &x[4 * r + 3]);
+
+        for (int j = 0; j < 4; j++) {
+            /* words 0-7 and 8-15 of blocks j and j + 4 */
+            __m256i w[4] = {
+                _mm256_permute2x128_si256(x[j], x[4 + j], 0x20),
+                _mm256_permute2x128_si256(x[8 + j], x[12 + j], 0x20),
+                _mm256_permute2x128_si256(x[j], x[4 + j], 0x31),
+                _mm256_permute2x128_si256(x[8 + j], x[12 + j], 0x31)
+            };
+            size_t o[4] = {
+                pos + 64 * j, pos + 64 * j + 32,
+                pos + 64 * (j + 4), pos + 64 * (j + 4) + 32
+            };
+            for (int q = 0; q < 4; q++) {
+                __m256i v =
+                    _mm256_loadu_si256((const __m256i *)(in + o[q]));
+                _mm256_storeu_si256((__m256i *)(out + o[q]),
+                                    _mm256_xor_si256(v, w[q]));
+            }
+        }
+        pos += 512;
+        counter += 8;
+    }
+    return pos;
+}
+
 /*
  * Write 'ngroups' groups of four consecutive keystream blocks to
  * 'out', 256 bytes per group, using 'drounds' double rounds and
@@ -872,16 +1003,6 @@ void chacha20_interleaved_kernel(const uint8_t key[32], uint32_t counter,
     uint32_t k[8], n[3];
     memcpy(k, key, 32);
     memcpy(n, nonce, 12);
-
-    /* pairs of groups via AVX2 where available, the rest via SSE2 */
-    if (ngroups >= 2 && have_avx2()) {
-        size_t done = chacha20_interleaved_avx2(key, counter, nonce, out,
-                                                ngroups, drounds,
-                                                key_ff_only);
-        counter += (uint32_t)(4 * done);
-        out     += 256 * done;
-        ngroups -= done;
-    }
 
     __m128i s[16];
     for (int i = 0; i < 4; i++)
@@ -919,15 +1040,38 @@ void chacha20_cipher_native(const uint8_t key[32], uint32_t counter,
                             const uint8_t nonce[12],
                             const uint8_t *in, uint8_t *out,
                             size_t inlen, int drounds) {
-    chacha20_cipher_kernel(key, counter, nonce, in, out, inlen, drounds);
-    burn_stack_small();
+    /* groups of eight blocks via AVX2, or of four via SSE2, in kernels
+     * of their own, whose frames are deeper; the rest via the cipher
+     * kernel */
+    size_t done = 0;
+    if (have_avx2()) {
+        if (inlen >= 512)
+            done = chacha20_cipher8_avx2(key, counter, nonce, in, out,
+                                         inlen, drounds);
+    } else if (inlen >= 256) {
+        done = chacha20_cipher4_kernel(key, counter, nonce, in, out,
+                                       inlen, drounds);
+    }
+    chacha20_cipher_kernel(key, counter + (uint32_t)(done / 64), nonce,
+                           in + done, out + done, inlen - done, drounds);
+    if (done)
+        burn_stack_large();
+    else
+        burn_stack_small();
 }
 
 void chacha20_interleaved_native(const uint8_t key[32], uint32_t counter,
                                  const uint8_t nonce[12], uint8_t *out,
                                  size_t ngroups, int drounds,
                                  int key_ff_only) {
-    chacha20_interleaved_kernel(key, counter, nonce, out, ngroups,
+    /* pairs of groups via AVX2 where available, the rest via SSE2, each
+     * kernel called from here so that their frames don't stack */
+    size_t done = 0;
+    if (ngroups >= 2 && have_avx2())
+        done = chacha20_interleaved_avx2(key, counter, nonce, out,
+                                         ngroups, drounds, key_ff_only);
+    chacha20_interleaved_kernel(key, counter + (uint32_t)(4 * done),
+                                nonce, out + 256 * done, ngroups - done,
                                 drounds, key_ff_only);
     burn_stack_large();
 }
